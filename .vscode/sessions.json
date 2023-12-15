@@ -1,0 +1,57 @@
+{
+  "$schema": "https://cdn.statically.io/gh/nguyenngoclongdev/cdn/main/schema/v9/terminal-keeper.json",
+  "theme": "default",
+  "active": "default",
+  "activateOnStartup": false,
+  "keepExistingTerminals": false,
+  "sessions": {
+    "default": [
+      {
+        "name": "root",
+        "commands": [
+          "clear"
+        ],
+        "autoExecuteCommands": true,
+        "icon": "home"
+      },
+      {
+        "name": "wsbus",
+        "commands": [
+          "cd apps/wsbus",
+          "clear"
+        ],
+        "autoExecuteCommands": true,
+        "color": "terminal.ansiRed",
+        "icon": "server"
+      },
+      {
+        "name": "wsbus",
+        "commands": [
+          "cd apps/wsbus",
+          "clear"
+        ],
+        "autoExecuteCommands": true
+      },
+      {
+        "name": "pycatway",
+        "commands": [
+          "cd lib/pycatway",
+          "clear"
+        ],
+        "autoExecuteCommands": true,
+        "color": "terminal.ansiYellow",
+        "icon": "library"
+      },
+      {
+        "name": "tscatway",
+        "commands": [
+          "cd lib/tscatway",
+          "clear"
+        ],
+        "autoExecuteCommands": true,
+        "color": "terminal.ansiYellow",
+        "icon": "library"
+      }
+    ]
+  }
+}

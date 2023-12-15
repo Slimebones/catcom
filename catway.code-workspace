@@ -1,0 +1,27 @@
+{
+	"folders": [
+		{
+			"name": "root",
+			"path": "."
+		},
+		{
+			"name": "wsbus",
+			"path": "apps/wsbus"
+		},
+		{
+			"name": "pycatway",
+			"path": "lib/pycatway"
+		},
+		{
+			"name": "tscatway",
+			"path": "lib/tscatway"
+		}
+	],
+	"settings": {
+		// add all libs here to ensure proper editable installs work
+		// https://github.com/microsoft/pylance-release/issues/78#issuecomment-1532391959
+		// "python.analysis.extraPaths": [
+		// 	"./lib/pycore"
+		// ]
+	}
+}
