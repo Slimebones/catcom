@@ -10,6 +10,7 @@ class BusWsController(WebsocketController):
         self,
         bus_service: BusService,
     ) -> None:
+        super().__init__()
         self._bus_service = bus_service
 
     async def main(

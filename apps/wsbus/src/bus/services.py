@@ -25,6 +25,8 @@ class BusService(Service):
     ]
 
     def __init__(self) -> None:
+        super().__init__()
+
         # TODO(ryzhovalex): clear tasks and closed cons when possible
         self._tasks: list[asyncio.Task] = []
         self._conns_by_servicecode: dict[str, list[Connection]] = {}
@@ -50,6 +52,8 @@ class BusService(Service):
             while True:
                 await self._process_message(conn)
         finally:
+            # TODO(ryzhovalex): return error emessages back
+
             # closed conns are cleared later
             conn.is_closed = True
 
@@ -96,10 +100,7 @@ class BusService(Service):
         message_dict: dict,
     ) -> str:
         try:
-            message = SubscribeSystemRMessage.model_validate({
-                "type": "ok",
-                "value": message_dict,
-            })
+            message = SubscribeSystemRMessage.model_validate(message_dict)
         except ValidationError as err:
             raise MessageError("cannot parse message") from err
 
@@ -125,7 +126,7 @@ class BusService(Service):
                 ownercode=Codes.slimebones.wsbus.bus.service.bus,
                 tocode=message.sendercode,
                 linkedmessageid=message.id,
-            ),
+            ).api,
         )))
         return servicecode
 

@@ -12,13 +12,17 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.asyncio
-async def test_connect(client: Client):
+async def test_subscribe(client: Client):
     ws: Websocket
     with client.websocket(
         "/bus",
     ) as ws:
-        await ws.send(SubscribeSystemRMessage(
+        ws.send_json(SubscribeSystemRMessage(
             id=RandomUtils.makeid(),
             ownercode="whocares",
             value=SubscribeSystemRMessageValue(),
-        ).api["value"])
+        ).api)  # type: ignore
+        response = ws.receive_json()
+        print(response)
+
+    assert 0

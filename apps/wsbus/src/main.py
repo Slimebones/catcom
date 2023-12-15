@@ -6,6 +6,9 @@ from orwynn.bootscript import Bootscript
 from orwynn.http import LogMiddleware
 from orwynn.module import Module
 from orwynn.server import Server, ServerEngine
+from src.bus.controllers import BusWsController
+
+from src.bus.services import BusService
 
 
 async def run_server(
@@ -37,8 +40,8 @@ async def run_server(
 def create_root_module() -> Module:
     return Module(
         "/",
-        Providers=[],
-        Controllers=[],
+        Providers=[BusService],
+        Controllers=[BusWsController],
         imports=[],
     )
 

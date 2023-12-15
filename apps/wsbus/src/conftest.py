@@ -1,3 +1,4 @@
+from contextlib import suppress
 import os
 from typing import AsyncGenerator
 
@@ -28,9 +29,12 @@ def _discard_workers(W: type[Worker] = Worker):
     for NestedW in W.__subclasses__():
         _discard_workers(NestedW)
     W.discard(should_validate=False)
-    del os.environ["ORWYNN_MODE"]
-    del os.environ["ORWYNN_ROOT_DIR"]
-    del os.environ["ORWYNN_APPRC_PATH"]
+    with suppress(KeyError):
+        del os.environ["ORWYNN_MODE"]
+    with suppress(KeyError):
+        del os.environ["ORWYNN_ROOT_DIR"]
+    with suppress(KeyError):
+        del os.environ["ORWYNN_APPRC_PATH"]
 
 
 @pytest_asyncio.fixture
