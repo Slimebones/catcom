@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 
-from orwynn.apiversion import ApiVersion
 from orwynn.boot import Boot
 from orwynn.bootscript import Bootscript
 from orwynn.http import LogMiddleware
@@ -50,7 +49,7 @@ async def create_boot(
     return await Boot.create(
         create_root_module(),
         global_middleware={
-            LogMiddleware: ["*"]
+            LogMiddleware: ["*"],
         },
         bootscripts=bootscripts,
     )

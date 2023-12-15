@@ -1,6 +1,6 @@
 from orwynn import DTO, UnitDTO
-from src.codes_auto import Codes
 
+from src.codes_auto import Codes
 from src.message.dto import SubscribeSystemRMessageValue
 
 
