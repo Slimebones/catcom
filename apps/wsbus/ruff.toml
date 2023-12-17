@@ -7,7 +7,8 @@ respect-gitignore = true
 exclude = [
     "docs/source/conf.py",
     ".vscode",
-    "migrations"
+    "migrations",
+    "*_auto.py"
 ]
 
 ignore = [

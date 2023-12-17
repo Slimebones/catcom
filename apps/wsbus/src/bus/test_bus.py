@@ -1,10 +1,11 @@
+import typing
 from typing import TYPE_CHECKING
 
 import pytest
 from orwynn.testing import Client
-from pykit.rnd import RandomUtils
 
-from src.message import SubscribeSystemRMessage
+from src.codes_auto import Codes
+from src.message import SubscribedSystemEMessage, SubscribeSystemRMessage
 from src.message.dto import SubscribeSystemRMessageValue
 
 if TYPE_CHECKING:
@@ -17,12 +18,19 @@ async def test_subscribe(client: Client):
     with client.websocket(
         "/bus",
     ) as ws:
-        ws.send_json(SubscribeSystemRMessage(
-            id=RandomUtils.makeid(),
+        inmessage = SubscribeSystemRMessage(
             ownercode="whocares",
             value=SubscribeSystemRMessageValue(),
-        ).api)  # type: ignore
-        response = ws.receive_json()
-        print(response)
-
-    assert 0
+        )
+        ws.send_json(inmessage.api)  # type: ignore
+        response = typing.cast(dict, ws.receive_json())
+        outmessage = SubscribedSystemEMessage.recover(response)
+        assert (
+            outmessage.code
+            == Codes.slimebones.catcom_wsbus.message.message.subscribed
+        )
+        assert (
+            outmessage.sendercode
+            == Codes.slimebones.catcom_wsbus.bus.service.bus
+        )
+        assert outmessage.lmid == inmessage.id

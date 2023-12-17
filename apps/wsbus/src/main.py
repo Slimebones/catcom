@@ -6,8 +6,8 @@ from orwynn.bootscript import Bootscript
 from orwynn.http import LogMiddleware
 from orwynn.module import Module
 from orwynn.server import Server, ServerEngine
-from src.bus.controllers import BusWsController
 
+from src.bus.controllers import BusWsController
 from src.bus.services import BusService
 
 

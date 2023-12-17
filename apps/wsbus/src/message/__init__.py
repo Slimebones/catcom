@@ -1,5 +1,9 @@
+from typing import Self
+
 from orwynn import DTO, UnitDTO
 from orwynn.proxy.indicationonly import ApiIndicationOnlyProxy
+from pykit import validation
+from pykit.rnd import RandomUtils
 
 from src.codes_auto import Codes
 from src.message.dto import SubscribeSystemRMessageValue
@@ -8,12 +12,18 @@ from src.message.dto import SubscribeSystemRMessageValue
 class Message(UnitDTO):
     ownercode: str
 
+    id: str = ""
     type: str | None = None
     fromcode: str | None = None
     tocode: str | None = None
     roomids: list[str] | None = None
-    linkedmessageid: str | None = None
-    value: DTO | None = None
+    lmid: str | None = None
+    value: DTO | Exception | None = None
+
+    def __init__(self, **data):
+        if "id" not in data:
+            data["id"] = RandomUtils.makeid()
+        super().__init__(**data)
 
     @property
     def sendercode(self) -> str:
@@ -30,7 +40,7 @@ class Message(UnitDTO):
         if self.value is None:
             del api["value"]
         else:
-            # digest value's dto separately
+            # digest value's dto or error separately
             api["value"] = api_indication.digest(self.value)
         if self.type is None:
             del api["type"]
@@ -40,10 +50,30 @@ class Message(UnitDTO):
             del api["tocode"]
         if self.roomids is None:
             del api["roomids"]
-        if self.linkedmessageid is None:
-            del api["linkedmessageid"]
+        if self.lmid is None:
+            del api["lmid"]
 
         return api
+
+    @classmethod
+    def recover(cls, mp: dict) -> Self:
+        """Recovers model of this class using dictionary."""
+        # TODO(ryzhovalex): replace this with orwynn indication functions
+        mp = {
+            "type": "ok",
+            "value": mp,
+        }
+
+        return validation.apply(
+            ApiIndicationOnlyProxy.ie().api_indication.recover(
+                cls, mp,
+            ),
+            cls,
+        )
+
+    class Config:
+        arbitrary_types_allowed = True
+
 
 class EMessage(Message):
     type: str | None = "event"
@@ -61,9 +91,9 @@ class SystemEMessage(RMessage):
 
 
 class SubscribeSystemRMessage(SystemRMessage):
-    Code = Codes.slimebones.wsbus.message.message.subscribe
+    Code = Codes.slimebones.catcom_wsbus.message.message.subscribe
     value: SubscribeSystemRMessageValue
 
 
 class SubscribedSystemEMessage(SystemEMessage):
-    Code = Codes.slimebones.wsbus.message.message.subscribed
+    Code = Codes.slimebones.catcom_wsbus.message.message.subscribed

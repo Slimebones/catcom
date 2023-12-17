@@ -7,6 +7,11 @@ class SubscribeSystemRMessageValue(DTO):
     message's owner.
     """
 
+    legacysendercodes: list[str] | None = None
+    """
+    Additional codes identifying the past of the message's sender.
+    """
+
     roomids: str | None = None
     """
     Rooms the service is part of.

@@ -1,10 +1,12 @@
 import asyncio
 import json
 
+from fastapi import WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 from orwynn import Service
+from orwynn.log import Log
 from orwynn.websocket import Websocket
 from pydantic import ValidationError
-from pykit.rnd import RandomUtils
 
 from src.bus.models import Connection
 from src.codes_auto import Codes
@@ -20,8 +22,8 @@ from src.message.errors import MessageError
 class BusService(Service):
     RawConnectionLifetime: float = 15.0
     SystemMessageCodes: list[str] = [
-        Codes.slimebones.wsbus.message.message.subscribe,
-        Codes.slimebones.wsbus.message.message.subscribed,
+        Codes.slimebones.catcom_wsbus.message.message.subscribe,
+        Codes.slimebones.catcom_wsbus.message.message.subscribed,
     ]
 
     def __init__(self) -> None:
@@ -29,9 +31,10 @@ class BusService(Service):
 
         # TODO(ryzhovalex): clear tasks and closed cons when possible
         self._tasks: list[asyncio.Task] = []
-        self._conns_by_servicecode: dict[str, list[Connection]] = {}
+        self._conn_by_id: dict[str, Connection] = {}
+        self._connids_by_servicecode: dict[str, list[str]] = {}
         """
-        Map of connections by service codes.
+        Map of connection ids by service codes.
 
         A connection here is duplicated for each service code subscribed.
 
@@ -44,19 +47,38 @@ class BusService(Service):
         websocket: Websocket,
     ) -> None:
         conn = Connection(
-            id=RandomUtils.makeid(),
             source=websocket,
+            servicecodes=set(),
         )
+        self._conn_by_id[conn.id] = conn
 
         try:
             while True:
                 await self._process_message(conn)
+        except WebSocketDisconnect:
+            # on websocket disconnect just pass to finally block
+            pass
+        # do not raise exception but log it in order to reach finally block
+        except Exception as err:  # noqa: BLE001
+            Log.error("bus error: " + str(err))
         finally:
-            # TODO(ryzhovalex): return error emessages back
+            # the bus closes the connection without sending back explanation
+            # messages, since in the current ws implementation it is not
+            # possible for the client (at least for the test one) to receive
+            # a bus error message and then receive a close (close always comes
+            # first). Also closing immediatelly is a somewhat protection from
+            # the malicious connections which are damaging the performance.
+            # The instant closing of such connections costs less processing
+            # time.
 
-            # closed conns are cleared later
-            conn.is_closed = True
-
+            del self._conn_by_id[conn.id]
+            for servicecode in conn.servicecodes:
+                self._connids_by_servicecode[servicecode].remove(conn.id)
+            if (
+                conn.source.application_state
+                is not WebSocketState.DISCONNECTED
+            ):
+                await conn.source.close()
 
     def _check_subscribe_message(
         self,
@@ -64,12 +86,12 @@ class BusService(Service):
     ) -> None:
         if (
             message.code
-            != Codes.slimebones.wsbus.message.message.subscribe
+            != Codes.slimebones.catcom_wsbus.message.message.subscribe
         ):
             raise MessageError(
                 f"wrong connect message code {message.code},"
                 " expected "
-                + Codes.slimebones.wsbus.message.message.subscribe,
+                + Codes.slimebones.catcom_wsbus.message.message.subscribe,
             )
 
         if message.fromcode is not None:
@@ -84,9 +106,9 @@ class BusService(Service):
             raise MessageError(
                 "subscribe message cannot have roomids",
             )
-        if message.linkedmessageid is not None:
+        if message.lmid is not None:
             raise MessageError(
-                "subscribe message cannot have linkedmessageid",
+                "subscribe message cannot have lmid",
             )
         if message.type != "request":
             raise MessageError(
@@ -98,7 +120,7 @@ class BusService(Service):
         self,
         conn: Connection,
         message_dict: dict,
-    ) -> str:
+    ) -> None:
         try:
             message = SubscribeSystemRMessage.model_validate(message_dict)
         except ValidationError as err:
@@ -106,29 +128,28 @@ class BusService(Service):
 
         self._check_subscribe_message(message)
 
-        servicecode: str = message.ownercode
+        servicecodes: list[str] = [message.sendercode]
+        conn.senderservicecode = servicecodes[0]
+        if message.value.legacysendercodes is not None:
+            servicecodes.extend(message.value.legacysendercodes)
 
-        if len(servicecode) == 0:
-            raise KeycodeError("empty keycode")
+        for servicecode in servicecodes:
+            if len(servicecode) == 0:
+                raise KeycodeError("empty keycode for message " + str(message))
 
-        if servicecode not in self._conns_by_servicecode:
-            self._conns_by_servicecode[servicecode] = [conn]
-        else:
-            self._conns_by_servicecode[servicecode].append(conn)
+            if servicecode not in self._connids_by_servicecode:
+                self._connids_by_servicecode[servicecode] = [conn.id]
+            else:
+                self._connids_by_servicecode[servicecode].append(conn.id)
+            conn.servicecodes.add(servicecode)
 
-        if conn.is_closed:
-            raise ConnectionError(
-                "connection was closed before receiving the subscribed event",
-            )
         self._tasks.append(asyncio.create_task(conn.source.send_json(
             SubscribedSystemEMessage(
-                id=RandomUtils.makeid(),
-                ownercode=Codes.slimebones.wsbus.bus.service.bus,
+                ownercode=Codes.slimebones.catcom_wsbus.bus.service.bus,
                 tocode=message.sendercode,
-                linkedmessageid=message.id,
+                lmid=message.id,
             ).api,
         )))
-        return servicecode
 
     async def _process_system_message(
         self,
@@ -136,7 +157,7 @@ class BusService(Service):
         message_dict: dict,
     ) -> None:
         match message_dict["code"]:
-            case Codes.slimebones.wsbus.message.message.subscribe:
+            case Codes.slimebones.catcom_wsbus.message.message.subscribe:
                 await self._process_subscribe_message(
                     conn, message_dict,
                 )
@@ -169,24 +190,16 @@ class BusService(Service):
         }
 
         if message.tocode is None:
-            sent_conn_ids: set[str] = set()
-            for _conns in self._conns_by_servicecode.values():
-                for _conn in _conns:
-                    if _conn.is_closed:
-                        continue
-
-                    if _conn.id not in sent_conn_ids:
-                        # broadcast messages will be sent to the
-                        # broadcast's owner too!
-                        self._tasks.append(asyncio.create_task(
-                            _conn.source.send(message_send_data),
-                        ))
-                        sent_conn_ids.add(_conn.id)
+            for _conn in self._conn_by_id.values():
+                # broadcast messages will be sent to the
+                # broadcast's owner too!
+                self._tasks.append(asyncio.create_task(
+                    _conn.source.send(message_send_data),
+                ))
             return
 
-        for _conn in self._conns_by_servicecode[message.tocode]:
-            if _conn.is_closed:
-                continue
+        for _connid in self._connids_by_servicecode[message.tocode]:
+            _conn = self._conn_by_id[_connid]
             self._tasks.append(asyncio.create_task(
                 _conn.source.send(
                     message_send_data,
