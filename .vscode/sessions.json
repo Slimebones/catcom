@@ -33,9 +33,9 @@
         "autoExecuteCommands": true
       },
       {
-        "name": "pycatway",
+        "name": "pycatcom",
         "commands": [
-          "cd lib/pycatway",
+          "cd lib/pycatcom",
           "clear"
         ],
         "autoExecuteCommands": true,
@@ -43,9 +43,9 @@
         "icon": "library"
       },
       {
-        "name": "tscatway",
+        "name": "tscatcom",
         "commands": [
-          "cd lib/tscatway",
+          "cd lib/tscatcom",
           "clear"
         ],
         "autoExecuteCommands": true,

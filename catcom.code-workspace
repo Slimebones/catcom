@@ -9,12 +9,12 @@
 			"path": "apps/wsbus"
 		},
 		{
-			"name": "pycatway",
-			"path": "lib/pycatway"
+			"name": "pycatcom",
+			"path": "lib/pycatcom"
 		},
 		{
-			"name": "tscatway",
-			"path": "lib/tscatway"
+			"name": "tscatcom",
+			"path": "lib/tscatcom"
 		}
 	],
 	"settings": {
