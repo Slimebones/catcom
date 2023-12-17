@@ -124,7 +124,9 @@ class BusService(Service):
         try:
             message = SubscribeSystemRMessage.model_validate(message_dict)
         except ValidationError as err:
-            raise MessageError("cannot parse message") from err
+            raise MessageError(
+                "cannot parse message " + str(message_dict)
+            ) from err
 
         self._check_subscribe_message(message)
 
@@ -167,6 +169,36 @@ class BusService(Service):
                     " one",
                 )
 
+    def _check_message_dict(self, message_dict: dict) -> None:
+        # do manual validation instead of pydantic one for a slight performance
+        assert "id" in message_dict and isinstance(message_dict["id"], str)
+        assert (
+            "type" in message_dict
+            and message_dict["type"] in ["request", "event"]
+        )
+        assert "code" in message_dict and isinstance(message_dict["code"], str)
+        assert (
+            "ownercode" in message_dict
+            and isinstance(message_dict["ownercode"], str)
+        )
+
+        # enforce that messages don't have any nullified fields to reduce
+        # their size
+        if "fromcode" in message_dict:
+            assert isinstance(message_dict["fromcode"], str)
+        if "tocode" in message_dict:
+            assert isinstance(message_dict["tocode"], str)
+        if "roomids" in message_dict:
+            assert isinstance(message_dict["roomids"], list)
+            assert len(message_dict["roomids"]) > 0
+        if "lmid" in message_dict:
+            assert isinstance(message_dict["lmid"], str)
+        if "value" in message_dict:
+            assert isinstance(message_dict["value"], dict)
+
+        # messages also might contain arbitrary redundant data - this is not
+        # checked here - too long to iterate over all fields
+
     async def _process_message(
         self,
         conn: Connection,
@@ -180,7 +212,7 @@ class BusService(Service):
             await self._process_system_message(conn, message_dict)
             return
 
-        message = Message.model_validate(message_dict)
+        self._check_message_dict(message_dict)
 
         # do not use send_json, optimize a lot by dumping only once for all
         # recipients
@@ -189,7 +221,7 @@ class BusService(Service):
             "text": json.dumps(message_dict, separators=(",", ":")),
         }
 
-        if message.tocode is None:
+        if "tocode" not in message_dict or message_dict["tocode"] is None:
             for _conn in self._conn_by_id.values():
                 # broadcast messages will be sent to the
                 # broadcast's owner too!
@@ -198,7 +230,7 @@ class BusService(Service):
                 ))
             return
 
-        for _connid in self._connids_by_servicecode[message.tocode]:
+        for _connid in self._connids_by_servicecode[message_dict["tocode"]]:
             _conn = self._conn_by_id[_connid]
             self._tasks.append(asyncio.create_task(
                 _conn.source.send(

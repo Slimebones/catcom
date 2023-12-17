@@ -10,6 +10,13 @@ from src.message.dto import SubscribeSystemRMessageValue
 
 
 class Message(UnitDTO):
+    """
+    Basic unit flowing in the bus.
+
+    Note that messages having any fields set to None won't pass bus
+    validation, even if this is logically correct. This is made to enforce
+    making messages of minimum body size.
+    """
     ownercode: str
 
     id: str = ""
@@ -23,6 +30,11 @@ class Message(UnitDTO):
     def __init__(self, **data):
         if "id" not in data:
             data["id"] = RandomUtils.makeid()
+        if "type" in data and data["type"] not in ["request", "event"]:
+            raise ValueError(
+                "message type can only be request or event, got "
+                + data["type"]
+            )
         super().__init__(**data)
 
     @property
