@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "rxcat"
+version = "0.1.0"
+description = ""
+authors = ["ryzhovalex <thed4rkof@gmail.com>"]
+readme = "readme.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fcode = { path = "../../../fcode/lib/pyfcode", develop = true }
+pykit = { path = "../../../pykit", develop = true }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
