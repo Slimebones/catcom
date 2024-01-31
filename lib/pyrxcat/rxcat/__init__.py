@@ -16,10 +16,15 @@ from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
 from typing import ClassVar, Self, TypeVar
+from fcode import code
+from pykit.singleton import Singleton
+from pykit.err import InpErr, AlreadyProcessedErr
+from aiohttp.web import WebSocketResponse as Websocket
+from aiohttp.http import WSMessage as Wsmsg
 
 from pydantic import BaseModel
 from pykit.rnd import RandomUtils
-
+from pykit.log import log
 
 class internal_InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -27,19 +32,14 @@ class internal_InvokedActionUnhandledErr(Exception):
             f"invoked {action} unhandled err: {err!r}"
         )
 
-
 class internal_BusUnhandledErr(Exception):
     def __init__(self, err: Exception):
         super().__init__(
             f"bus unhandled err: {err}"
         )
 
-
-# this cfg specifically is not Cfg, but Model, since pyrxcat does not know
-# about orwynn
 class BusCfg(BaseModel):
     is_invoked_action_unhandled_errs_logged: bool = False
-
 
 class Msg(BaseModel):
     """
@@ -230,7 +230,7 @@ class Bus(Singleton):
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
         # network in and out unprocessed yet raw msgs
-        self._net_inp_raw_msg_queue: Queue = Queue(self.MsgQueueMaxSize)
+        self._net_inp_wsmsg_queue: Queue = Queue(self.MsgQueueMaxSize)
         self._net_out_raw_msg_queue: Queue = Queue(self.MsgQueueMaxSize)
 
         self._net_inp_raw_msg_queue_processor: Task | None = None
@@ -370,26 +370,31 @@ class Bus(Singleton):
             del self._id_to_conn[conn_id]
 
     async def _read_ws(self, ws: Websocket):
-        async for raw_msg in ws.iter_json():
-            self._net_inp_raw_msg_queue.put_nowait(raw_msg)
+        async for wsmsg in ws:
+            self._net_inp_wsmsg_queue.put_nowait(wsmsg)
 
     async def _process_net_inp_raw_msg_queue(self) -> None:
         while True:
-            raw_msg: dict = await self._net_inp_raw_msg_queue.get()
+            wsmsg: Wsmsg = await self._net_inp_wsmsg_queue.get()
+            try:
+                rawmsg: dict = wsmsg.json()
+            except Exception:  # noqa: BLE001
+                log.err(f"unable to parse ws msg {wsmsg}")
+                continue
 
-            msid: str | None = raw_msg.get("msid", None)
+            msid: str | None = rawmsg.get("msid", None)
             if not msid:
-                Log.error("msg without msid => skip silently")
+                log.err("msg without msid => skip silently")
                 continue
 
             # for future rsid navigation
             # rsid: str | None = raw_msg.get("lmsid", None)
 
-            mcodeid: int | None = raw_msg.get("mcodeid", None)
+            mcodeid: int | None = rawmsg.get("mcodeid", None)
             if not mcodeid:
                 await self.throw_err_evt(
                     ValueError(
-                        f"got msg {raw_msg} with undefined mcodeid"
+                        f"got msg {rawmsg} with undefined mcodeid"
                     )
                 )
                 continue
@@ -413,7 +418,7 @@ class Bus(Singleton):
             assert t is not None, "if mcodeid found, mtype must be found"
 
             t = typing.cast(type[Msg], t)
-            msg = t.deserialize_json(raw_msg)
+            msg = t.deserialize_json(rawmsg)
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
@@ -455,7 +460,7 @@ class Bus(Singleton):
 
         del self._sub_id_to_msg_type[id]
         # todo: also hold subid to action to not delete the whole action set
-        Log.warning(
+        log.warn(
             "unsub works uncorrectly now - deletes all actions for type"
         )
         del self._msg_type_to_actions[msg_type]
@@ -538,7 +543,7 @@ class Bus(Singleton):
             await self._try_invoke_raction(raction, req, evt)
 
     def __action_catch(self, err: Exception):
-        Log.exception(err)
+        log.catch(err)
 
     async def _try_invoke_raction(
         self,
