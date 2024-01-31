@@ -254,6 +254,10 @@ class Bus(Singleton):
 
         self._is_initd = True
 
+    @property
+    def is_initd(self) -> bool:
+        return self._is_initd
+
     async def throw_err_evt(
         self,
         err: Exception,
@@ -341,16 +345,24 @@ class Bus(Singleton):
                 indexedErrcodes=self._IndexedErrcodes
             ).serialize_json(self._initd_client_evt_mcodeid)
 
-    async def destroy(self):
+    @classmethod
+    async def destroy(cls):
         """
         Should be used only on server close or test interchanging.
         """
-        if not self._is_initd:
+        bus = Bus.ie()
+        if not bus.is_initd:
             return
-        if self._net_inp_raw_msg_queue_processor:
-            self._net_inp_raw_msg_queue_processor.cancel()
-        if self._net_out_raw_msg_queue_processor:
-            self._net_out_raw_msg_queue_processor.cancel()
+
+        if not bus._is_initd:
+            return
+
+        if bus._net_inp_raw_msg_queue_processor:
+            bus._net_inp_raw_msg_queue_processor.cancel()
+        if bus._net_out_raw_msg_queue_processor:
+            bus._net_out_raw_msg_queue_processor.cancel()
+
+        Bus.try_discard()
 
     async def conn(self, ws: Websocket) -> None:
         if not self._id_to_conn:
