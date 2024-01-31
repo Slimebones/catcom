@@ -11,6 +11,14 @@ fcode = { path = "../../../fcode/lib/pyfcode", develop = true }
 pykit = { path = "../../../pykit", develop = true }
 aiohttp = {extras = ["speedups"], version = "^3.9.3"}
 
+[tool.poetry.group.dev.dependencies]
+lorem = "^0.1.1"
+ruff = "^0.1.15"
+git-changelog = "^1.0.0"
+coverage = "^6.5.0"
+pytest = "^7.2.0"
+pytest-asyncio = "^0.20.3"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

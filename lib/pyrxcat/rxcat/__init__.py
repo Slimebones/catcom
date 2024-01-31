@@ -11,20 +11,21 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import typing
-import fcode
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
-from typing import ClassVar, Self, TypeVar
-from fcode import code
-from pykit.singleton import Singleton
-from pykit.err import InpErr, AlreadyProcessedErr
-from aiohttp.web import WebSocketResponse as Websocket
-from aiohttp.http import WSMessage as Wsmsg
+from typing import TYPE_CHECKING, ClassVar, Self, TypeVar
 
+from aiohttp.web import WebSocketResponse as Websocket
+from fcode import FcodeCore, code
 from pydantic import BaseModel
-from pykit.rnd import RandomUtils
+from pykit.err import AlreadyProcessedErr, InpErr
 from pykit.log import log
+from pykit.rnd import RandomUtils
+from pykit.singleton import Singleton
+
+if TYPE_CHECKING:
+    from aiohttp.http import WSMessage as Wsmsg
 
 class internal_InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -195,8 +196,7 @@ class Bus(Singleton):
 
     async def init(self):
         self._cfg = BusCfg(is_invoked_action_unhandled_errs_logged=True)
-        self._fcode = fcode.FcodeCore.ie()
-        self._fcode.defcode("rxcat.fallback-err", Exception)
+        FcodeCore.defcode("rxcat.fallback-err", Exception)
         # only server is able to index mcodes, client is not able to send
         # theirs mcodes on conn, so the server must know client codes at boot
         #
@@ -306,7 +306,7 @@ class Bus(Singleton):
         return res
 
     def _init_mcodes(self):
-        collections = self._fcode.try_get_all_codes(Msg)
+        collections = FcodeCore.try_get_all_codes(Msg)
         assert collections, "must have at least one mcode defined"
         self._IndexedMcodes = collections
 
@@ -316,7 +316,7 @@ class Bus(Singleton):
                 self._McodeToMcodeid[mcode] = id
 
     def _init_errcodes(self):
-        collections = self._fcode.try_get_all_codes(Exception)
+        collections = FcodeCore.try_get_all_codes(Exception)
         assert collections, "must have at least one errcode defined"
         self._IndexedErrcodes = collections
 
@@ -328,7 +328,7 @@ class Bus(Singleton):
     async def postinit(self):
         # restrict any further code defines since we start sending code data
         # to clients
-        self._fcode.deflock = True
+        FcodeCore.deflock = True
 
         if self._initd_client_evt_mcodeid is None:
             mcodeid = self.try_get_mcodeid_for_mtype(InitdClientEvt)
@@ -378,7 +378,7 @@ class Bus(Singleton):
             wsmsg: Wsmsg = await self._net_inp_wsmsg_queue.get()
             try:
                 rawmsg: dict = wsmsg.json()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.err(f"unable to parse ws msg {wsmsg}")
                 continue
 
@@ -412,7 +412,7 @@ class Bus(Singleton):
                 continue
 
             t: type[Msg] | None = \
-                self._fcode.try_get_type_for_any_code(
+                FcodeCore.try_get_type_for_any_code(
                     self._IndexedActiveMcodes[mcodeid]
                 )
             assert t is not None, "if mcodeid found, mtype must be found"
@@ -536,9 +536,6 @@ class Bus(Singleton):
         if req_and_raction is not None:
             req = req_and_raction[0]
             raction = req_and_raction[1]
-            # on any case delete map entry, but do it before raction call,
-            # since there a new err may occur and an infinite err rethrow will
-            # occur
             del self._rsid_to_req_and_raction[evt.rsid]
             await self._try_invoke_raction(raction, req, evt)
 
@@ -553,7 +550,7 @@ class Bus(Singleton):
     ) -> bool:
         try:
             await raction(req, evt)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
             # technically, the msg which caused the err is evt, since on evt
@@ -570,7 +567,7 @@ class Bus(Singleton):
     ) -> bool:
         try:
             await action(msg)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
             await self.throw_err_evt(err, msg)
@@ -580,7 +577,7 @@ class Bus(Singleton):
 
     def try_get_mcodeid_for_mtype(self, mtype: type[Msg]) -> int | None:
         mcode: str | None = \
-            self._fcode.try_get_active_code_for_type(mtype)
+            FcodeCore.try_get_active_code_for_type(mtype)
         if mcode:
             mcodeid: int = self._McodeToMcodeid.get(mcode, -1)
             assert mcodeid != -1, "must find mcodeid for mcode"
@@ -597,7 +594,7 @@ class Bus(Singleton):
         self, errtype: type[Exception]
     ) -> int | None:
         errcode: str | None = \
-            self._fcode.try_get_active_code_for_type(errtype)
+            FcodeCore.try_get_active_code_for_type(errtype)
         if errcode:
             errcodeid: int = self._ErrcodeToErrcodeid.get(errcode, -1)
             assert errcodeid != -1, "must find mcodeid for mcode"
