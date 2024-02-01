@@ -121,7 +121,7 @@ class Req(Msg):
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
-Raction = Callable[[TReq, TEvt], Awaitable[None]]
+Raction = Callable[[TReq, TEvt], Awaitable[bool]]
 
 @code("pyrxcat.ok-evt")
 class OkEvt(Evt):
@@ -249,7 +249,7 @@ class Bus(Singleton):
             )
 
         self._rsid_to_req_and_raction: dict[
-            str, tuple[Req, Callable[[Req, Evt], Awaitable[None]]]
+            str, tuple[Req, Raction]
         ] = {}
 
         self._is_initd = True
@@ -548,29 +548,35 @@ class Bus(Singleton):
         if req_and_raction is not None:
             req = req_and_raction[0]
             raction = req_and_raction[1]
-            del self._rsid_to_req_and_raction[evt.rsid]
-            await self._try_invoke_raction(raction, req, evt)
+            ractionf = await self._try_invoke_raction(raction, req, evt)
+            # del if raction retd true and thus decided to end the stream
+            if ractionf:
+                del self._rsid_to_req_and_raction[evt.rsid]
 
     def __action_catch(self, err: Exception):
         log.catch(err)
 
     async def _try_invoke_raction(
         self,
-        raction: Callable[[Req, Evt], Awaitable[None]],
+        raction: Raction,
         req: Req,
         evt: Evt
     ) -> bool:
+        """
+        Calls raction and returns it's result.
+
+        On unhandled error throws err evt and returns True, thus ending the
+        stream, to avoid hanging faulty ractions.
+        """
         try:
-            await raction(req, evt)
+            return await raction(req, evt)
         except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
             # technically, the msg which caused the err is evt, since on evt
             # the raction is finally called
             await self.throw_err_evt(err, evt)
-            return False
-
-        return True
+            return True
 
     async def _try_invoke_action(
         self,
