@@ -602,7 +602,7 @@ develop = true
 
 [package.source]
 type = "directory"
-url = "../../../fcode/lib/pyfcode"
+url = "../pyfcode"
 
 [[package]]
 name = "frozenlist"
@@ -1150,7 +1150,7 @@ develop = true
 [package.dependencies]
 bcrypt = "^4.1.1"
 dictdiffer = "^0.9.0"
-fcode = {path = "../fcode/lib/pyfcode", develop = true}
+fcode = {path = "../pyfcode", develop = true}
 loguru = "^0.7.2"
 pydantic = "^2.5.2"
 python-benedict = "^0.33.0"
@@ -1158,7 +1158,7 @@ pyyaml = "^6.0.1"
 
 [package.source]
 type = "directory"
-url = "../../../pykit"
+url = "../pykit"
 
 [[package]]
 name = "pytest"
@@ -1529,4 +1529,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "e8df033e11c2b0f8ff2c3d97c758e5a0788eec20abc62f404ac2a00e4b72a0e8"
+content-hash = "19afc345a6c43c7f7a97c4ca0d79c9788ba008515ac296c8f8316502590e637f"

@@ -7,8 +7,8 @@ readme = "readme.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fcode = { path = "../../../fcode/lib/pyfcode", develop = true }
-pykit = { path = "../../../pykit", develop = true }
+fcode = { path = "../pyfcode", develop = true }
+pykit = { path = "../pykit", develop = true }
 aiohttp = {extras = ["speedups"], version = "^3.9.3"}
 
 [tool.poetry.group.dev.dependencies]
