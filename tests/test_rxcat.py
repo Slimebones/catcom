@@ -13,16 +13,13 @@ class _Evt1(Evt):
 class _Evt2(Evt):
     num: int
 
-
 @code("rxcat-test.req1")
 class _Req1(Req):
     num: int
 
-
 @code("rxcat-test.req2")
 class _Req2(Req):
     num: int
-
 
 @pytest.mark.asyncio
 async def test_inner_pubsub(bus: Bus):
@@ -48,7 +45,6 @@ async def test_inner_pubsub(bus: Bus):
 
     assert is_msg1_arrived
     assert is_msg2_arrived
-
 
 @pytest.mark.asyncio
 async def test_evt_serialization(bus: Bus) -> None:

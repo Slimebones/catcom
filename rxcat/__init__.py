@@ -279,7 +279,7 @@ class Bus(Singleton):
         errcodeid: int | None = self.try_get_errcodeid_for_errtype(type(err))
         errmsg: str = ", ".join(err.args)
 
-        rsid: str | None = None
+        rsid: str = "__system__"
         if isinstance(triggered_msg, Evt):
             rsid = triggered_msg.rsid
 
@@ -339,7 +339,8 @@ class Bus(Singleton):
         if not self._preserialized_initd_client_evt:
             self._preserialized_initd_client_evt = InitdClientEvt(
                 indexedMcodes=self._IndexedMcodes,
-                indexedErrcodes=self._IndexedErrcodes
+                indexedErrcodes=self._IndexedErrcodes,
+                rsid="__system__"
             ).serialize_json(self._initd_client_evt_mcodeid)
 
     @classmethod
