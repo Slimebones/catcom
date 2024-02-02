@@ -43,8 +43,8 @@ async def test_inner_pubsub(bus: Bus):
 
     await bus.sub(_Evt1, on_msg1)
     await bus.sub(_Evt2, on_msg2)
-    await bus.pub(_Evt1(num=1))
-    await bus.pub(_Evt2(num=2))
+    await bus.pub(_Evt1(num=1, rsid="__system__"))
+    await bus.pub(_Evt2(num=2, rsid="__system__"))
 
     assert is_msg1_arrived
     assert is_msg2_arrived
@@ -55,13 +55,14 @@ async def test_evt_serialization(bus: Bus) -> None:
     msg1_mcodeid = bus.try_get_mcodeid_for_mtype(_Evt1)
     assert msg1_mcodeid is not None
 
-    m = _Evt1(num=1)
+    m = _Evt1(num=1, rsid="__system__")
 
     sm = m.serialize_json(msg1_mcodeid)
 
     # shouldn't contain lmsid since it's None
     assert sm == {
         "msid": m.msid,
+        "rsid": "__system__",
         "mcodeid": msg1_mcodeid,
         "num": m.num
     }

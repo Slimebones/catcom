@@ -102,22 +102,19 @@ class Msg(BaseModel):
 
         return cls(**data)
 
-
 class Evt(Msg):
     """
     @abs
     """
-    rsid: str | None = None
+    rsid: str
     """
     In response to which request the event has been sent.
     """
-
 
 class Req(Msg):
     """
     @abs
     """
-
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
@@ -462,7 +459,7 @@ class Bus(Singleton):
 
         return sub_id
 
-    async def unsub_one(self, id: int):
+    async def unsub(self, id: int):
         if id not in self._sub_id_to_msg_type:
             raise ValueError(f"sub with id {id} not found")
 
@@ -477,12 +474,12 @@ class Bus(Singleton):
         )
         del self._msg_type_to_actions[msg_type]
 
-    async def unsub(
+    async def unsub_many(
         self,
         id: list[int],
     ) -> None:
         for i in id:
-            await self.unsub_one(i)
+            await self.unsub(i)
 
     async def pub(
         self,
