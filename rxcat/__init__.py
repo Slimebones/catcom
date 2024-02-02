@@ -130,8 +130,8 @@ class OkEvt(Evt):
     """
 
 
-@code("pyrxcat.thrown-err-evt")
-class ThrownErrEvt(Evt):
+@code("pyrxcat.err-evt")
+class ErrEvt(Evt):
     """
     Represents any err that can be thrown.
 
@@ -139,6 +139,18 @@ class ThrownErrEvt(Evt):
     """
     errcodeid: int | None = None
     errmsg: str
+
+    isThrownByRaction: bool | None = None
+    """
+    Errs can be thrown by req-listening action or by req+evt listening raction.
+
+    In the second case, we should set this flag to True to avoid infinite
+    msg loop, where after raction fail, the err evt is generated with the
+    same req sid, and again is sent to the same raction which caused this err.
+
+    If this flag is set, the bus will prevent raction trigger, for this err
+    evt, but won't disable the raction.
+    """
 
 
 @code("pyrxcat.initd-client-evt")
@@ -259,7 +271,9 @@ class Bus(Singleton):
         self,
         err: Exception,
         triggered_msg: Msg | None = None,
-        pub_opts: PubOpts = PubOpts()
+        pub_opts: PubOpts = PubOpts(),
+        *,
+        is_thrown_by_raction: bool | None = None
     ):
         """
         Pubs ThrownErrEvt.
@@ -283,10 +297,11 @@ class Bus(Singleton):
         if isinstance(triggered_msg, Evt):
             rsid = triggered_msg.rsid
 
-        evt = ThrownErrEvt(
+        evt = ErrEvt(
             errcodeid=errcodeid,
             errmsg=errmsg,
-            rsid=rsid
+            rsid=rsid,
+            isThrownByRaction=is_thrown_by_raction
         )
 
         if errcodeid is None:
@@ -535,13 +550,14 @@ class Bus(Singleton):
             await self._send_evt_as_response(msg)
 
     async def _send_evt_as_response(self, evt: Evt):
-        if not evt.rsid:
-            return
-
         req_and_raction = self._rsid_to_req_and_raction.get(
             evt.rsid,
             None
         )
+
+        if isinstance(evt, ErrEvt) and evt.isThrownByRaction:
+            # skip raction errs to avoid infinite msg loop
+            return
 
         if req_and_raction is not None:
             req = req_and_raction[0]
@@ -574,7 +590,7 @@ class Bus(Singleton):
                 self.__action_catch(err)
             # technically, the msg which caused the err is evt, since on evt
             # the raction is finally called
-            await self.throw_err_evt(err, evt)
+            await self.throw_err_evt(err, evt, is_thrown_by_raction=True)
             return False
         return True
 
