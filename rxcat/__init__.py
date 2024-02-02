@@ -552,9 +552,9 @@ class Bus(Singleton):
 
             # raction for now never deld by the bus, despite the result
             # (errs will be continiously thrown) - the raction should
-            # use "try_del_raction" by themself
+            # use "try_close_raction" by themself
 
-    async def try_del_raction(self, rsid: str) -> bool:
+    async def try_close_raction(self, rsid: str) -> bool:
         if rsid not in self._rsid_to_req_and_raction:
             return False
         del self._rsid_to_req_and_raction[rsid]
