@@ -10,7 +10,7 @@ async def auto():
 
     FcodeCore.deflock = False
     FcodeCore.clean_non_decorator_codes()
-    Bus.try_discard()
+    await Bus.destroy()
 
 @pytest_asyncio.fixture
 async def bus() -> Bus:

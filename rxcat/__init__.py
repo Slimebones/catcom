@@ -121,7 +121,7 @@ class Req(Msg):
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
-Raction = Callable[[TReq, TEvt], Awaitable[bool]]
+Raction = Callable[[TReq, TEvt], Awaitable[None]]
 
 @code("pyrxcat.ok-evt")
 class OkEvt(Evt):
@@ -354,13 +354,13 @@ class Bus(Singleton):
         if not bus.is_initd:
             return
 
-        if not bus._is_initd:
+        if not bus._is_initd:  # noqa: SLF001
             return
 
-        if bus._net_inp_raw_msg_queue_processor:
-            bus._net_inp_raw_msg_queue_processor.cancel()
-        if bus._net_out_raw_msg_queue_processor:
-            bus._net_out_raw_msg_queue_processor.cancel()
+        if bus._net_inp_raw_msg_queue_processor:  # noqa: SLF001
+            bus._net_inp_raw_msg_queue_processor.cancel()  # noqa: SLF001
+        if bus._net_out_raw_msg_queue_processor:  # noqa: SLF001
+            bus._net_out_raw_msg_queue_processor.cancel()  # noqa: SLF001
 
         Bus.try_discard()
 
@@ -548,10 +548,17 @@ class Bus(Singleton):
         if req_and_raction is not None:
             req = req_and_raction[0]
             raction = req_and_raction[1]
-            ractionf = await self._try_invoke_raction(raction, req, evt)
-            # del if raction retd true and thus decided to end the stream
-            if ractionf:
-                del self._rsid_to_req_and_raction[evt.rsid]
+            await self._try_invoke_raction(raction, req, evt)
+
+            # raction for now never deld by the bus, despite the result
+            # (errs will be continiously thrown) - the raction should
+            # use "try_del_raction" by themself
+
+    async def try_del_raction(self, rsid: str) -> bool:
+        if rsid not in self._rsid_to_req_and_raction:
+            return False
+        del self._rsid_to_req_and_raction[rsid]
+        return True
 
     def __action_catch(self, err: Exception):
         log.catch(err)
@@ -562,21 +569,16 @@ class Bus(Singleton):
         req: Req,
         evt: Evt
     ) -> bool:
-        """
-        Calls raction and returns it's result.
-
-        On unhandled error throws err evt and returns True, thus ending the
-        stream, to avoid hanging faulty ractions.
-        """
         try:
-            return await raction(req, evt)
+            await raction(req, evt)
         except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
             # technically, the msg which caused the err is evt, since on evt
             # the raction is finally called
             await self.throw_err_evt(err, evt)
-            return True
+            return False
+        return True
 
     async def _try_invoke_action(
         self,
