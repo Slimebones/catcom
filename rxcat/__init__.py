@@ -627,7 +627,7 @@ class Bus(Singleton):
         #
         #   1. Net (only if has mcodeid and this is in the required list)
         #   2. Inner (always for every registered subaction)
-        #   3. As a response (only if this msg type has the associated raction)
+        #   3. As a response (only if this msg type has the associated paction)
 
         if opts.must_send_to_net:
             mcodeid: int | None = self.try_get_mcodeid_for_mtype(msg_type)
