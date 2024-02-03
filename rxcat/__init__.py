@@ -88,7 +88,7 @@ class Msg(BaseModel):
             # throw a warning for now, and ofcourse del the field
             log.warn(
                 "connids must exist only inside server bus, but it is tried"
-                f" to serialize msg {self} with connid != None" 
+                f" to serialize msg {self} with connid != None"
             )
             del res["connid"]
 
@@ -171,11 +171,13 @@ class ErrEvt(Evt):
 
     isThrownByRaction: bool | None = None
     """
-    Errs can be thrown by req-listening action or by req+evt listening pubaction.
+    Errs can be thrown by req-listening action or by req+evt listening
+    pubaction.
 
     In the second case, we should set this flag to True to avoid infinite
     msg loop, where after pubaction fail, the err evt is generated with the
-    same req sid, and again is sent to the same pubaction which caused this err.
+    same req sid, and again is sent to the same pubaction which caused this
+    err.
 
     If this flag is set, the bus will prevent pubaction trigger, for this err
     evt, but won't disable the pubaction.
@@ -541,9 +543,10 @@ class Bus(Singleton):
             connids, rawmsg = \
                 await self._net_out_connids_and_rawmsg_queue.get()
 
-            coros: list[Coroutine] = []
-            for connid in connids:
-                coros.append(self._connid_to_conn[connid].send_json(rawmsg))
+            coros: list[Coroutine] = [
+                self._connid_to_conn[connid].send_json(rawmsg)
+                for connid in connids
+            ]
             await asyncio.gather(*coros)
 
     async def sub(
