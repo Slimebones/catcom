@@ -130,6 +130,12 @@ class Evt(Msg):
     In response to which request the event has been sent.
     """
 
+    isContinious: bool | None = None
+    """
+    Whether receiving bus should delete pubaction entry after call pubaction
+    with this evt. If true, the entry is not deleted.
+    """
+
 class Req(Msg):
     """
     @abs
@@ -183,7 +189,6 @@ class ErrEvt(Evt):
     evt, but won't disable the pubaction.
     """
 
-
 @code("pyrxcat.initd-client-evt")
 class InitdClientEvt(Evt):
     """
@@ -209,6 +214,8 @@ class InitdClientEvt(Evt):
 TMsg = TypeVar("TMsg", bound=Msg)
 
 class PubOpts(BaseModel):
+    must_send_to_inner: bool = True
+
     must_send_to_net: bool = True
     """
     Will send to net if True and code is defined for the msg passed.
@@ -279,7 +286,7 @@ class ServerBus(Singleton):
         self._net_inp_connid_and_wsmsg_queue: Queue[tuple[int, Wsmsg]] = \
             Queue(self.MsgQueueMaxSize)
         self._net_out_connids_and_rawmsg_queue: Queue[
-            tuple[list[int], dict]
+            tuple[set[int], dict]
         ] = Queue(self.MsgQueueMaxSize)
 
         self._net_inp_queue_processor: Task | None = None
@@ -300,6 +307,7 @@ class ServerBus(Singleton):
         self._rsid_to_req_and_pubaction: dict[
             str, tuple[Req, PubAction]
         ] = {}
+        self._rsids_to_del_on_next_pubaction: set[str] = set()
 
         self._is_initd = True
 
@@ -568,7 +576,11 @@ class ServerBus(Singleton):
 
         mcodeid = self.try_get_mcodeid_for_mtype(mtype)
         if mcodeid:
-            await self.pub(_SubReq(targetMcodeid=mcodeid))
+            await self.pub(
+                _SubReq(targetMcodeid=mcodeid),
+                None,
+                PubOpts(must_send_to_inner=False)
+            )
 
         return subid
 
@@ -614,8 +626,8 @@ class ServerBus(Singleton):
                 raise AlreadyProcessedErr(f"{msg} for pubr")
             self._rsid_to_req_and_pubaction[msg.msid] = (msg, pubaction)
 
-        msg_type = type(msg)
-        self._type_to_last_msg[msg_type] = msg
+        mtype = type(msg)
+        self._type_to_last_msg[mtype] = msg
 
         # SEND ORDER
         #
@@ -624,9 +636,12 @@ class ServerBus(Singleton):
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.must_send_to_net:
-            mcodeid: int | None = self.try_get_mcodeid_for_mtype(msg_type)
+            mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
             if mcodeid is not None:
-                connids: list[int] = self._mcodeid_to_connids.get(mcodeid, [])
+                connids: set[int] = self._mcodeid_to_connids.get(
+                    mcodeid,
+                    set()
+                )
                 if connids:
                     log.info(
                         f"send {msg} over the net to connids {connids}",
@@ -637,8 +652,8 @@ class ServerBus(Singleton):
                         (connids, rawmsg)
                     )
 
-        if msg_type in self._mtype_to_subactions:
-            for subaction in self._mtype_to_subactions[msg_type]:
+        if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
+            for subaction in self._mtype_to_subactions[mtype]:
                 await self._try_invoke_subaction(subaction, msg)
 
         if isinstance(msg, Evt):
@@ -663,7 +678,7 @@ class ServerBus(Singleton):
             # (errs will be continiously thrown) - the pubaction should
             # use "try_close_pubaction" by themself
 
-    async def try_close_pubaction(self, rsid: str) -> bool:
+    def _try_del_pubaction(self, rsid: str) -> bool:
         if rsid not in self._rsid_to_req_and_pubaction:
             return False
         del self._rsid_to_req_and_pubaction[rsid]
@@ -678,6 +693,7 @@ class ServerBus(Singleton):
         req: Req,
         evt: Evt
     ) -> bool:
+        f = True
         try:
             await pubaction(req, evt)
         except Exception as err:
@@ -686,8 +702,10 @@ class ServerBus(Singleton):
             # technically, the msg which caused the err is evt, since on evt
             # the pubaction is finally called
             await self.throw_err_evt(err, evt, is_thrown_by_pubaction=True)
-            return False
-        return True
+            f = False
+        if not evt.isContinious:
+            self._try_del_pubaction(req.msid)
+        return f
 
     async def _try_invoke_subaction(
         self,
