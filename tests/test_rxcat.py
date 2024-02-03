@@ -1,7 +1,7 @@
 import pytest
 from fcode import code
 
-from rxcat import Bus, Evt, Req
+from rxcat import Evt, Req, ServerBus
 
 
 @code("rxcat-test.msg1")
@@ -22,7 +22,7 @@ class _Req2(Req):
     num: int
 
 @pytest.mark.asyncio
-async def test_inner_pubsub(bus: Bus):
+async def test_inner_pubsub(server_bus: ServerBus):
     is_msg1_arrived = False
     is_msg2_arrived = False
 
@@ -38,17 +38,17 @@ async def test_inner_pubsub(bus: Bus):
         assert msg.num == 2
         is_msg2_arrived = True
 
-    await bus.sub(_Evt1, on_msg1)
-    await bus.sub(_Evt2, on_msg2)
-    await bus.pub(_Evt1(num=1, rsid="__system__"))
-    await bus.pub(_Evt2(num=2, rsid="__system__"))
+    await server_bus.sub(_Evt1, on_msg1)
+    await server_bus.sub(_Evt2, on_msg2)
+    await server_bus.pub(_Evt1(num=1, rsid="__system__"))
+    await server_bus.pub(_Evt2(num=2, rsid="__system__"))
 
     assert is_msg1_arrived
     assert is_msg2_arrived
 
 @pytest.mark.asyncio
-async def test_evt_serialization(bus: Bus) -> None:
-    msg1_mcodeid = bus.try_get_mcodeid_for_mtype(_Evt1)
+async def test_evt_serialization(server_bus: ServerBus) -> None:
+    msg1_mcodeid = server_bus.try_get_mcodeid_for_mtype(_Evt1)
     assert msg1_mcodeid is not None
 
     m = _Evt1(num=1, rsid="__system__")

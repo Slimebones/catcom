@@ -39,7 +39,7 @@ class internal_BusUnhandledErr(Exception):
             f"bus unhandled err: {err}"
         )
 
-class BusCfg(BaseModel):
+class ServerBusCfg(BaseModel):
     is_invoked_action_unhandled_errs_logged: bool = False
 
 class Msg(BaseModel):
@@ -223,15 +223,9 @@ class SubOpts(BaseModel):
     All filters should succeed before msg being passed to a subscriber.
     """
 
-class BusConnType:
-    Inner = 0
-    Tcp = 1
-    Udp = 2
-    Ws = 3
-
 SubAction = tuple[Callable[[Msg], Awaitable], SubOpts]
 
-class Bus(Singleton):
+class ServerBus(Singleton):
     """
     Server bus implementation.
     """
@@ -241,7 +235,7 @@ class Bus(Singleton):
         self._is_initd = False
 
     async def init(self):
-        self._cfg = BusCfg(is_invoked_action_unhandled_errs_logged=True)
+        self._cfg = ServerBusCfg(is_invoked_action_unhandled_errs_logged=True)
         FcodeCore.defcode("rxcat.fallback-err", Exception)
         # only server is able to index mcodes, client is not able to send
         # theirs mcodes on conn, so the server must know client codes at boot
@@ -447,7 +441,7 @@ class Bus(Singleton):
         """
         Should be used only on server close or test interchanging.
         """
-        bus = Bus.ie()
+        bus = ServerBus.ie()
         if not bus.is_initd:
             return
 
@@ -459,7 +453,7 @@ class Bus(Singleton):
         if bus._net_out_queue_processor:  # noqa: SLF001
             bus._net_out_queue_processor.cancel()  # noqa: SLF001
 
-        Bus.try_discard()
+        ServerBus.try_discard()
 
     async def conn(self, conn: Websocket) -> None:
         if not self._connid_to_conn:

@@ -1,7 +1,7 @@
 import pytest_asyncio
 from fcode import FcodeCore
 
-from rxcat import Bus
+from rxcat import ServerBus
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -10,10 +10,10 @@ async def auto():
 
     FcodeCore.deflock = False
     FcodeCore.clean_non_decorator_codes()
-    await Bus.destroy()
+    await ServerBus.destroy()
 
 @pytest_asyncio.fixture
-async def bus() -> Bus:
-    bus = Bus.ie()
+async def server_bus() -> ServerBus:
+    bus = ServerBus.ie()
     await bus.init()
     return bus
