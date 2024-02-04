@@ -59,12 +59,17 @@ class Msg(BaseModel):
 
     msid: str = ""
 
-    connid: int | None = None
+    m_connid: int | None = None
     """
     From which conn the msg is originated.
 
     Only actual for the server. If set to None, it means that the msg is inner.
     Otherwise it is always set to connid.
+    """
+
+    m_to_connids: list[int] = []
+    """
+    To which connids the published msg should be addressed.
     """
 
     def __init__(self, **data):
@@ -130,7 +135,7 @@ class Evt(Msg):
     In response to which request the event has been sent.
     """
 
-    isContinious: bool | None = None
+    m_isContinious: bool | None = None
     """
     Whether receiving bus should delete pubaction entry after call pubaction
     with this evt. If true, the entry is not deleted.
@@ -140,17 +145,6 @@ class Req(Msg):
     """
     @abs
     """
-
-@code("pyrxcat.sub-req")
-class _SubReq(Req):
-    """
-    Used to manage subscriptions over the net.
-    """
-    targetMcodeid: int
-
-@code("pyrxcat.unsub-req")
-class _UnsubReq(Req):
-    targetMcodeid: int
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
@@ -311,44 +305,6 @@ class ServerBus(Singleton):
 
         self._is_initd = True
 
-        # accept sub/unsub from the client
-        await self.sub(_SubReq, self._on_sub)
-        await self.sub(_UnsubReq, self._on_unsub)
-
-    async def _on_sub(self, req: _SubReq):
-        if req.connid is None:
-            log.err("sub reqs must originate only from conns => skip")
-            return
-        if req.targetMcodeid not in self._mcodeid_to_connids:
-            self._mcodeid_to_connids[req.targetMcodeid] = set()
-        connids = self._mcodeid_to_connids[req.targetMcodeid]
-        if req.connid in connids:
-            log.err(
-                f"req {req} with connid {req.connid} has been attached"
-                " already => skip"
-            )
-            return
-        connids.add(req.connid)
-
-    async def _on_unsub(self, req: _UnsubReq):
-        if req.connid is None:
-            log.err("unsub reqs must originate only from conns => skip")
-            return
-        if req.targetMcodeid not in self._mcodeid_to_connids:
-            log.err(
-                f"for unsub req {req} target mcodeid {req.targetMcodeid}"
-                " is not found => skip"
-            )
-            return
-        connids = self._mcodeid_to_connids[req.targetMcodeid]
-        if req.connid not in connids:
-            log.err(
-                f"unsub req {req} connid not in connids for the given"
-                f" mcodeid {req.targetMcodeid} => skip"
-            )
-            return
-        connids.remove(req.connid)
-
     @property
     def is_initd(self) -> bool:
         return self._is_initd
@@ -393,6 +349,7 @@ class ServerBus(Singleton):
         if errcodeid is None:
             errcodeid = self._fallback_errcodeid
 
+        log.err(f"thrown err evt: {evt}", 1)
         await self.pub(evt, None, pub_opts)
 
     def try_get_mcodeid_for_mcode(self, mcode: str) -> int | None:
@@ -428,6 +385,10 @@ class ServerBus(Singleton):
                 self._ErrcodeToErrcodeid[errcode] = id
 
     async def postinit(self):
+        # init mcodes and errcodes for the second time to catch up all defined
+        # ones
+        self._init_mcodes()
+        self._init_errcodes()
         # restrict any further code defines since we start sending code data
         # to clients
         FcodeCore.deflock = True
@@ -478,6 +439,7 @@ class ServerBus(Singleton):
         try:
             # for now set initd out of order, just by putting preserialized
             # obj directly
+            log.debug(self._preserialized_initd_client_evt)
             await conn.send_json(self._preserialized_initd_client_evt)
             await self._read_ws(connid, conn)
         finally:
@@ -486,6 +448,7 @@ class ServerBus(Singleton):
 
     async def _read_ws(self, connid: int, conn: Websocket):
         async for wsmsg in conn:
+            log.debug(f"arrived: {wsmsg}")
             self._net_inp_connid_and_wsmsg_queue.put_nowait((connid, wsmsg))
 
     async def _process_net_inp_queue(self) -> None:
@@ -505,10 +468,10 @@ class ServerBus(Singleton):
                 continue
 
             # for future rsid navigation
-            # rsid: str | None = raw_msg.get("lmsid", None)
+            # rsid: str | None = raw_msg.get("rsid", None)
 
             mcodeid: int | None = rawmsg.get("mcodeid", None)
-            if not mcodeid:
+            if mcodeid is None:
                 await self.throw_err_evt(
                     ValueError(
                         f"got msg {rawmsg} with undefined mcodeid"
@@ -651,6 +614,11 @@ class ServerBus(Singleton):
                     self._net_out_connids_and_rawmsg_queue.put_nowait(
                         (connids, rawmsg)
                     )
+                else:
+                    log.info(
+                        f"tried to send {msg}, but no according connids",
+                        2
+                    )
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
             for subaction in self._mtype_to_subactions[mtype]:
@@ -703,7 +671,7 @@ class ServerBus(Singleton):
             # the pubaction is finally called
             await self.throw_err_evt(err, evt, is_thrown_by_pubaction=True)
             f = False
-        if not evt.isContinious:
+        if not evt.m_isContinious:
             self._try_del_pubaction(req.msid)
         return f
 
