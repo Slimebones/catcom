@@ -50,13 +50,6 @@ class Msg(BaseModel):
 
     @abs
     """
-
-    MustExcludeChildNoneFieldsOnSerialization: ClassVar[bool] = True
-    """
-    If set to True, all child-defined fields set to None will be excluded
-    from the final serialization to reduce raw msg size.
-    """
-
     msid: str = ""
 
     m_connid: int | None = None
@@ -67,7 +60,7 @@ class Msg(BaseModel):
     Otherwise it is always set to connid.
     """
 
-    m_to_connids: list[int] = []
+    m_toConnids: list[int] = []
     """
     To which connids the published msg should be addressed.
     """
@@ -86,8 +79,9 @@ class Msg(BaseModel):
     def serialize_json(self, mcodeid: int) -> dict:
         res: dict = self.model_dump()
 
-        # we should do this check before key deletion setup
-        if "connid" in res and res["connid"] is not None:
+        # DEL SERVER MSG FIELDS
+        #       we should do these before key deletion setup
+        if "m_connid" in res and res["m_connid"] is not None:
             # connids must exist only inside server bus, it's probably an err
             # if a msg is tried to be serialized with connid, but we will
             # throw a warning for now, and ofcourse del the field
@@ -95,7 +89,9 @@ class Msg(BaseModel):
                 "connids must exist only inside server bus, but it is tried"
                 f" to serialize msg {self} with connid != None"
             )
-            del res["connid"]
+            del res["m_connid"]
+        if "m_toConnids" in res:
+            del res["m_toConnids"]
 
         is_msid_found = False
         keys_to_del: list[str] = []
@@ -256,11 +252,6 @@ class ServerBus(Singleton):
         self._init_errcodes()
         self._fallback_errcodeid: int = \
             self._ErrcodeToErrcodeid["rxcat.fallback-err"]
-
-        self._mcodeid_to_connids: dict[int, set[int]] = {}
-        """
-        Map of connids for each required mcodeid.
-        """
 
         # todo: check id overflow
         self._next_available_conn_id: int = 0
@@ -498,7 +489,7 @@ class ServerBus(Singleton):
             assert t is not None, "if mcodeid found, mtype must be found"
 
             t = typing.cast(type[Msg], t)
-            rawmsg["connid"] = connid
+            rawmsg["m_connid"] = connid
             msg = t.deserialize_json(rawmsg)
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
@@ -537,14 +528,6 @@ class ServerBus(Singleton):
                 last_msg
             )
 
-        mcodeid = self.try_get_mcodeid_for_mtype(mtype)
-        if mcodeid:
-            await self.pub(
-                _SubReq(targetMcodeid=mcodeid),
-                None,
-                PubOpts(must_send_to_inner=False)
-            )
-
         return subid
 
     async def unsub(self, subid: int):
@@ -554,10 +537,6 @@ class ServerBus(Singleton):
         assert self._subid_to_mtype[subid] in self._mtype_to_subactions
 
         msg_type = self._subid_to_mtype[subid]
-
-        mcodeid = self.try_get_mcodeid_for_mtype(msg_type)
-        if mcodeid:
-            await self.pub(_UnsubReq(targetMcodeid=mcodeid))
 
         assert subid in self._subid_to_mtype, "all maps must be synced"
         assert subid in self._subid_to_subaction, "all maps must be synced"
@@ -601,11 +580,21 @@ class ServerBus(Singleton):
         if opts.must_send_to_net:
             mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
             if mcodeid is not None:
-                connids: set[int] = self._mcodeid_to_connids.get(
-                    mcodeid,
-                    set()
-                )
+                connids: set[int] = set(msg.m_toConnids)
                 if connids:
+                    connids_to_del: set[int] = set()
+
+                    # clean unexistent connids
+                    for connid in connids:
+                        if connid not in self._connid_to_conn:
+                            log.err(
+                                f"no conn with id {connid}"
+                                " => del from recipients"
+                            )
+                            connids_to_del.add(connid)
+                    for connid in connids_to_del:
+                        connids.remove(connid)
+
                     log.info(
                         f"send {msg} over the net to connids {connids}",
                         2
@@ -613,11 +602,6 @@ class ServerBus(Singleton):
                     rawmsg = msg.serialize_json(mcodeid)
                     self._net_out_connids_and_rawmsg_queue.put_nowait(
                         (connids, rawmsg)
-                    )
-                else:
-                    log.info(
-                        f"tried to send {msg}, but no according connids",
-                        2
                     )
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
