@@ -146,7 +146,7 @@ TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
 PubAction = Callable[[TReq, TEvt], Awaitable[None]]
 
-@code("pyrxcat.ok-evt")
+@code("rxcat.ok-evt")
 class OkEvt(Evt):
     """
     Confirm that a req processed successfully.
@@ -155,7 +155,7 @@ class OkEvt(Evt):
     it is too general.
     """
 
-@code("pyrxcat.err-evt")
+@code("rxcat.err-evt")
 class ErrEvt(Evt):
     """
     Represents any err that can be thrown.
@@ -179,7 +179,7 @@ class ErrEvt(Evt):
     evt, but won't disable the pubaction.
     """
 
-@code("pyrxcat.initd-client-evt")
+@code("rxcat.initd-client-evt")
 class InitdClientEvt(Evt):
     """
     Welcome evt sent to every connected client.
@@ -311,7 +311,7 @@ class ServerBus(Singleton):
         """
         Pubs ThrownErrEvt.
 
-        If given err has no code attached, the default "rxcat.fallback-err" is
+        If given err has no code attached, the default is
         used.
 
         Args:
