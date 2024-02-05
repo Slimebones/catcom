@@ -142,6 +142,9 @@ class Req(Msg):
     @abs
     """
 
+    def get_res_connids(self) -> list[int]:
+        return [self.m_connid] if self.m_connid is not None else []
+
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
 PubAction = Callable[[TReq, TEvt], Awaitable[None]]
@@ -642,10 +645,6 @@ class ServerBus(Singleton):
             req = req_and_pubaction[0]
             pubaction = req_and_pubaction[1]
             await self._try_invoke_pubaction(pubaction, req, evt)
-
-            # pubaction for now never deld by the bus, despite the result
-            # (errs will be continiously thrown) - the pubaction should
-            # use "try_close_pubaction" by themself
 
     def _try_del_pubaction(self, rsid: str) -> bool:
         if rsid not in self._rsid_to_req_and_pubaction:
