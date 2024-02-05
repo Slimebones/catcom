@@ -336,6 +336,10 @@ class ServerBus(Singleton):
         rsid: str | None = None
         if isinstance(triggered_msg, Evt):
             rsid = triggered_msg.rsid
+        elif isinstance(triggered_msg, Req):
+            rsid = triggered_msg.msid
+        else:
+            assert triggered_msg is None
 
         to_connids_f = []
         if m_to_connids is not None:
@@ -444,7 +448,6 @@ class ServerBus(Singleton):
         try:
             # for now set initd out of order, just by putting preserialized
             # obj directly
-            log.debug(self._preserialized_initd_client_evt)
             await conn.send_json(self._preserialized_initd_client_evt)
             await self._read_ws(connid, conn)
         finally:
@@ -453,7 +456,7 @@ class ServerBus(Singleton):
 
     async def _read_ws(self, connid: int, conn: Websocket):
         async for wsmsg in conn:
-            log.debug(f"arrived: {wsmsg}")
+            log.info(f"receive: {wsmsg}", 2)
             self._net_inp_connid_and_wsmsg_queue.put_nowait((connid, wsmsg))
 
     async def _process_net_inp_queue(self) -> None:
@@ -513,6 +516,7 @@ class ServerBus(Singleton):
             connids, rawmsg = \
                 await self._net_out_connids_and_rawmsg_queue.get()
 
+            log.info(f"send to connids {connids}: {rawmsg}", 2)
             coros: list[Coroutine] = [
                 self._connid_to_conn[connid].send_json(rawmsg)
                 for connid in connids
