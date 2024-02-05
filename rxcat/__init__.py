@@ -126,7 +126,7 @@ class Evt(Msg):
     """
     @abs
     """
-    rsid: str
+    rsid: str | None
     """
     In response to which request the event has been sent.
     """
@@ -327,7 +327,7 @@ class ServerBus(Singleton):
         errcodeid: int | None = self.try_get_errcodeid_for_errtype(type(err))
         errmsg: str = ", ".join(err.args)
 
-        rsid: str = "__system__"
+        rsid: str | None = None
         if isinstance(triggered_msg, Evt):
             rsid = triggered_msg.rsid
 
@@ -395,7 +395,7 @@ class ServerBus(Singleton):
             self._preserialized_initd_client_evt = InitdClientEvt(
                 indexedMcodes=self._IndexedMcodes,
                 indexedErrcodes=self._IndexedErrcodes,
-                rsid="__system__"
+                rsid=None
             ).serialize_json(self._initd_client_evt_mcodeid)
 
     @classmethod
@@ -614,6 +614,9 @@ class ServerBus(Singleton):
             await self._send_evt_as_response(msg)
 
     async def _send_evt_as_response(self, evt: Evt):
+        if not evt.rsid:
+            return
+
         req_and_pubaction = self._rsid_to_req_and_pubaction.get(
             evt.rsid,
             None
