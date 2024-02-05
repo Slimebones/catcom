@@ -4,20 +4,20 @@ from fcode import code
 from rxcat import Evt, Req, ServerBus
 
 
-@code("pyrxcat-test.msg1")
+@code("msg1")
 class _Evt1(Evt):
     num: int
 
 
-@code("pyrxcat-test.msg2")
+@code("msg2")
 class _Evt2(Evt):
     num: int
 
-@code("pyrxcat-test.req1")
+@code("req1")
 class _Req1(Req):
     num: int
 
-@code("pyrxcat-test.req2")
+@code("req2")
 class _Req2(Req):
     num: int
 

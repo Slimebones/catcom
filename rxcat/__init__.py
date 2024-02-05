@@ -146,7 +146,7 @@ TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
 PubAction = Callable[[TReq, TEvt], Awaitable[None]]
 
-@code("rxcat.ok-evt")
+@code("ok-evt")
 class OkEvt(Evt):
     """
     Confirm that a req processed successfully.
@@ -155,7 +155,7 @@ class OkEvt(Evt):
     it is too general.
     """
 
-@code("rxcat.err-evt")
+@code("err-evt")
 class ErrEvt(Evt):
     """
     Represents any err that can be thrown.
@@ -165,7 +165,7 @@ class ErrEvt(Evt):
     errcodeid: int | None = None
     errmsg: str
 
-    isThrownByRaction: bool | None = None
+    isThrownByPubAction: bool | None = None
     """
     Errs can be thrown by req-listening action or by req+evt listening
     pubaction.
@@ -179,7 +179,7 @@ class ErrEvt(Evt):
     evt, but won't disable the pubaction.
     """
 
-@code("rxcat.initd-client-evt")
+@code("initd-client-evt")
 class InitdClientEvt(Evt):
     """
     Welcome evt sent to every connected client.
@@ -315,6 +315,12 @@ class ServerBus(Singleton):
         If given err has no code attached, the default is
         used.
 
+        The thrown err evt will be sent to connections if one of is true:
+            - the triggered msg has conn id attached
+            - the m_to_connids field is given
+
+        If both is true, the m_to_connids will be used as override.
+
         Args:
             err:
                 Err to throw as evt.
@@ -331,12 +337,18 @@ class ServerBus(Singleton):
         if isinstance(triggered_msg, Evt):
             rsid = triggered_msg.rsid
 
+        to_connids_f = []
+        if m_to_connids is not None:
+            to_connids_f = m_to_connids
+        elif triggered_msg and triggered_msg.m_connid is not None:
+            to_connids_f = [triggered_msg.m_connid]
+
         evt = ErrEvt(
             errcodeid=errcodeid,
             errmsg=errmsg,
             rsid=rsid,
-            m_toConnids=m_to_connids or [],
-            isThrownByRaction=is_thrown_by_pubaction
+            m_toConnids=to_connids_f,
+            isThrownByPubAction=is_thrown_by_pubaction
         )
 
         if errcodeid is None:
@@ -622,7 +634,7 @@ class ServerBus(Singleton):
             None
         )
 
-        if isinstance(evt, ErrEvt) and evt.isThrownByRaction:
+        if isinstance(evt, ErrEvt) and evt.isThrownByPubAction:
             # skip pubaction errs to avoid infinite msg loop
             return
 
