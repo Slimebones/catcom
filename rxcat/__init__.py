@@ -613,10 +613,6 @@ class ServerBus(Singleton):
                     for connid in connids_to_del:
                         connids.remove(connid)
 
-                    log.info(
-                        f"send {msg} over the net to connids {connids}",
-                        2
-                    )
                     rawmsg = msg.serialize_json(mcodeid)
                     self._net_out_connids_and_rawmsg_queue.put_nowait(
                         (connids, rawmsg)
