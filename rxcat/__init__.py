@@ -306,6 +306,7 @@ class ServerBus(Singleton):
         triggered_msg: Msg | None = None,
         pub_opts: PubOpts = PubOpts(),
         *,
+        m_to_connids: list[int] | None = None,
         is_thrown_by_pubaction: bool | None = None
     ):
         """
@@ -334,6 +335,7 @@ class ServerBus(Singleton):
             errcodeid=errcodeid,
             errmsg=errmsg,
             rsid=rsid,
+            m_toConnids=m_to_connids or [],
             isThrownByRaction=is_thrown_by_pubaction
         )
 
@@ -653,7 +655,12 @@ class ServerBus(Singleton):
                 self.__action_catch(err)
             # technically, the msg which caused the err is evt, since on evt
             # the pubaction is finally called
-            await self.throw_err_evt(err, evt, is_thrown_by_pubaction=True)
+            await self.throw_err_evt(
+                err,
+                evt,
+                m_to_connids=req.m_toConnids,
+                is_thrown_by_pubaction=True
+            )
             f = False
         if not evt.m_isContinious:
             self._try_del_pubaction(req.msid)
