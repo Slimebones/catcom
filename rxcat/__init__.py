@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, ClassVar, Coroutine, Self, TypeVar
 
 from aiohttp.web import WebSocketResponse as Websocket
 from fcode import FcodeCore, code
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pykit.err import AlreadyProcessedErr, InpErr
 from pykit.log import log
 from pykit.rnd import RandomUtils
@@ -460,7 +460,7 @@ class ServerBus(Singleton):
     async def _read_ws(self, connid: int, conn: Websocket):
         async for wsmsg in conn:
             log.info(f"receive: {wsmsg}", 2)
-            self._net_inp_connid_and_wsmsg_queue.put_nowait((connid, wsmsg))
+            await self._net_inp_connid_and_wsmsg_queue.put((connid, wsmsg))
 
     async def _process_net_inp_queue(self) -> None:
         while True:
@@ -510,7 +510,11 @@ class ServerBus(Singleton):
 
             t = typing.cast(type[Msg], t)
             rawmsg["m_connid"] = connid
-            msg = t.deserialize_json(rawmsg)
+            try:
+                msg = t.deserialize_json(rawmsg)
+            except ValidationError as err:
+                log.err_or_catch(err, 2)
+                continue
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
