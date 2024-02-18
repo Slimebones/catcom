@@ -58,7 +58,6 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
     # shouldn't contain lmsid since it's None
     assert sm == {
         "msid": m.msid,
-        "rsid": None,
         "mcodeid": msg1_mcodeid,
         "num": m.num
     }

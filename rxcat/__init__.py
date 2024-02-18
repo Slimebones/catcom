@@ -14,11 +14,11 @@ import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, ClassVar, Coroutine, Self, TypeVar
+from typing import TYPE_CHECKING, Coroutine, Self, TypeVar
 
 from aiohttp.web import WebSocketResponse as Websocket
 from fcode import FcodeCore, code
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr
 from pykit.log import log
 from pykit.rnd import RandomUtils
@@ -120,15 +120,10 @@ class Msg(BaseModel):
         if "mcodeid" in data:
             del data["mcodeid"]
 
+        if "rsid" not in data:
+            data["rsid"] = None
+
         return cls(**data)
-
-class Req(Msg):
-    """
-    @abs
-    """
-
-    def get_res_connids(self) -> list[int]:
-        return [self.m_connid] if self.m_connid is not None else []
 
 class Evt(Msg):
     """
@@ -145,10 +140,13 @@ class Evt(Msg):
     with this evt. If true, the entry is not deleted.
     """
 
-    def as_res_from_req(self, req: Req) -> Self:
-        self.rsid = req.msid
-        self.m_toConnids = req.get_res_connids()
-        return self
+class Req(Msg):
+    """
+    @abs
+    """
+
+    def get_res_connids(self) -> list[int]:
+        return [self.m_connid] if self.m_connid is not None else []
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
@@ -465,7 +463,7 @@ class ServerBus(Singleton):
     async def _read_ws(self, connid: int, conn: Websocket):
         async for wsmsg in conn:
             log.info(f"receive: {wsmsg}", 2)
-            await self._net_inp_connid_and_wsmsg_queue.put((connid, wsmsg))
+            self._net_inp_connid_and_wsmsg_queue.put_nowait((connid, wsmsg))
 
     async def _process_net_inp_queue(self) -> None:
         while True:
@@ -515,11 +513,7 @@ class ServerBus(Singleton):
 
             t = typing.cast(type[Msg], t)
             rawmsg["m_connid"] = connid
-            try:
-                msg = t.deserialize_json(rawmsg)
-            except ValidationError as err:
-                log.err_or_catch(err, 2)
-                continue
+            msg = t.deserialize_json(rawmsg)
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
@@ -608,27 +602,7 @@ class ServerBus(Singleton):
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.must_send_to_net:
-            mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
-            if mcodeid is not None:
-                connids: set[int] = set(msg.m_toConnids)
-                if connids:
-                    connids_to_del: set[int] = set()
-
-                    # clean unexistent connids
-                    for connid in connids:
-                        if connid not in self._connid_to_conn:
-                            log.err(
-                                f"no conn with id {connid}"
-                                " => del from recipients"
-                            )
-                            connids_to_del.add(connid)
-                    for connid in connids_to_del:
-                        connids.remove(connid)
-
-                    rawmsg = msg.serialize_json(mcodeid)
-                    self._net_out_connids_and_rawmsg_queue.put_nowait(
-                        (connids, rawmsg)
-                    )
+            await self._pub_to_net(mtype, msg)
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
             for subaction in self._mtype_to_subactions[mtype]:
@@ -637,20 +611,32 @@ class ServerBus(Singleton):
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
 
-    async def pubr(
+    async def _pub_to_net(
         self,
-        req: Req,
-        opts: PubOpts = PubOpts()
-    ) -> Evt:
-        evtf: Evt | None = None
+        mtype: type,
+        msg: Msg
+    ):
+        mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
+        if mcodeid is not None:
+            connids: set[int] = set(msg.m_toConnids)
+            if connids:
+                connids_to_del: set[int] = set()
 
-        async def pubaction(req: Req, evt):
-            nonlocal evtf
-            evtf = evt
+                # clean unexistent connids
+                for connid in connids:
+                    if connid not in self._connid_to_conn:
+                        log.err(
+                            f"no conn with id {connid}"
+                            " => del from recipients"
+                        )
+                        connids_to_del.add(connid)
+                for connid in connids_to_del:
+                    connids.remove(connid)
 
-        await self.pub(req, pubaction, opts)
-        assert evtf is not None
-        return evtf
+                rawmsg = msg.serialize_json(mcodeid)
+                self._net_out_connids_and_rawmsg_queue.put_nowait(
+                    (connids, rawmsg)
+                )
 
     async def _send_evt_as_response(self, evt: Evt):
         if not evt.rsid:
