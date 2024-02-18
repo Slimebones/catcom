@@ -518,7 +518,11 @@ class ServerBus(Singleton):
 
             t = typing.cast(type[Msg], t)
             rawmsg["m_connid"] = connid
-            msg = t.deserialize_json(rawmsg)
+            try:
+                msg = t.deserialize_json(rawmsg)
+            except Exception as err:
+                log.err_or_catch(err, 2)
+                continue
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
