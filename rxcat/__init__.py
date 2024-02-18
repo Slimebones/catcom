@@ -637,6 +637,21 @@ class ServerBus(Singleton):
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
 
+    async def pubr(
+        self,
+        req: Req,
+        opts: PubOpts = PubOpts()
+    ) -> Evt:
+        evtf: Evt | None = None
+
+        async def pubaction(req: Req, evt):
+            nonlocal evtf
+            evtf = evt
+
+        await self.pub(req, pubaction, opts)
+        assert evtf is not None
+        return evtf
+
     async def _send_evt_as_response(self, evt: Evt):
         if not evt.rsid:
             return
