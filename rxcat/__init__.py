@@ -125,6 +125,14 @@ class Msg(BaseModel):
 
         return cls(**data)
 
+class Req(Msg):
+    """
+    @abs
+    """
+
+    def get_res_connids(self) -> list[int]:
+        return [self.m_connid] if self.m_connid is not None else []
+
 class Evt(Msg):
     """
     @abs
@@ -140,13 +148,10 @@ class Evt(Msg):
     with this evt. If true, the entry is not deleted.
     """
 
-class Req(Msg):
-    """
-    @abs
-    """
-
-    def get_res_connids(self) -> list[int]:
-        return [self.m_connid] if self.m_connid is not None else []
+    def as_res_from_req(self, req: Req) -> Self:
+        self.msid = req.msid
+        self.m_toConnids = req.get_res_connids()
+        return self
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
