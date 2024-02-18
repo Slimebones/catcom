@@ -149,7 +149,7 @@ class Evt(Msg):
     """
 
     def as_res_from_req(self, req: Req) -> Self:
-        self.msid = req.msid
+        self.rsid = req.msid
         self.m_toConnids = req.get_res_connids()
         return self
 
@@ -579,6 +579,21 @@ class ServerBus(Singleton):
     ) -> None:
         for i in id:
             await self.unsub(i)
+
+    async def pubr(
+        self,
+        req: Req,
+        opts: PubOpts = PubOpts()
+    ):
+        evtf: Evt | None = None
+
+        async def pubaction(_, evt: Evt):
+            nonlocal evtf
+            evtf = evt
+
+        await self.pub(req, pubaction, opts)
+        assert evtf is not None
+        return evtf
 
     async def pub(
         self,
