@@ -256,8 +256,8 @@ class ServerBus(Singleton):
         self._IndexedActiveMcodes: list[str] = []
         self._IndexedActiveErrcodes: list[str] = []
 
-        self._IndexedMcodes: list[list[str]] = []
-        self._IndexedErrcodes: list[list[str]] = []
+        self.IndexedMcodes: list[list[str]] = []
+        self.IndexedErrcodes: list[list[str]] = []
 
         self._init_mcodes()
         self._init_errcodes()
@@ -387,7 +387,7 @@ class ServerBus(Singleton):
     def _init_mcodes(self):
         collections = FcodeCore.try_get_all_codes(Msg)
         assert collections, "must have at least one mcode defined"
-        self._IndexedMcodes = collections
+        self.IndexedMcodes = collections
 
         for id, mcodes in enumerate(collections):
             self._IndexedActiveMcodes.append(mcodes[0])
@@ -397,7 +397,7 @@ class ServerBus(Singleton):
     def _init_errcodes(self):
         collections = FcodeCore.try_get_all_codes(Exception)
         assert collections, "must have at least one errcode defined"
-        self._IndexedErrcodes = collections
+        self.IndexedErrcodes = collections
 
         for id, errcodes in enumerate(collections):
             self._IndexedActiveErrcodes.append(errcodes[0])
@@ -420,8 +420,8 @@ class ServerBus(Singleton):
 
         if not self._preserialized_initd_client_evt:
             self._preserialized_initd_client_evt = InitdClientEvt(
-                indexedMcodes=self._IndexedMcodes,
-                indexedErrcodes=self._IndexedErrcodes,
+                indexedMcodes=self.IndexedMcodes,
+                indexedErrcodes=self.IndexedErrcodes,
                 rsid=None
             ).serialize_json(self._initd_client_evt_mcodeid)
 
