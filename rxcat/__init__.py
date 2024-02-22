@@ -342,7 +342,7 @@ class ServerBus(Singleton):
                 Extra pub opts to send to Bus.pub method.
         """
         errcodeid: int | None = self.try_get_errcodeid_for_errtype(type(err))
-        errmsg: str = ", ".join(err.args)
+        errmsg: str = ", ".join([str(a) for a in err.args])
 
         rsid: str | None = None
         if isinstance(triggered_msg, Evt):
