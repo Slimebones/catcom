@@ -621,8 +621,6 @@ class ServerBus(Singleton):
         pubaction: PubAction | None = None,
         opts: PubOpts = PubOpts(),
     ):
-        if os.getenv("TEST", "0") == "1":
-            assert 0, msg
         if pubaction is not None and not isinstance(msg, Req):
             raise InpErr(f"for defined pubaction, {msg} should be req")
 
