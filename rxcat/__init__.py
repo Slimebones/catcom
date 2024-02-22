@@ -10,6 +10,7 @@ every client on connection. For now this is two types of codes:
 """
 
 import asyncio
+import os
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
@@ -20,6 +21,7 @@ from aiohttp.web import WebSocketResponse as Websocket
 from fcode import FcodeCore, code
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr
+from pykit.pointer import Pointer
 from pykit.log import log
 from pykit.rnd import RandomUtils
 from pykit.singleton import Singleton
@@ -431,8 +433,6 @@ class ServerBus(Singleton):
         Should be used only on server close or test interchanging.
         """
         bus = ServerBus.ie()
-        if not bus.is_initd:
-            return
 
         if not bus._is_initd:  # noqa: SLF001
             return
@@ -588,16 +588,32 @@ class ServerBus(Singleton):
         self,
         req: Req,
         opts: PubOpts = PubOpts()
-    ):
-        evtf: Evt | None = None
+    ) -> Evt:
+        aevt = asyncio.Event()
+        pointer = Pointer(target=Evt(rsid=""))
 
-        async def pubaction(_, evt: Evt):
-            nonlocal evtf
-            evtf = evt
+        def wrapper(aevt: asyncio.Event, evtf_pointer: Pointer[Evt]):
+            async def pubaction(_, evt: Evt):
+                if isinstance(evt, ErrEvt):
+                    log.err(evt.errmsg)
+                    return
+                aevt.set()
+                evtf_pointer.target = evt
 
-        await self.pub(req, pubaction, opts)
-        assert evtf is not None
-        return evtf
+            return pubaction
+
+        await self.pub(
+            req,
+            wrapper(aevt, pointer),
+            opts
+        )
+        await aevt.wait()
+        assert pointer.target
+        assert \
+            type(pointer.target) is not Evt, \
+            "usage of base evt class detected," \
+                " or probably pubr pubaction worked incorrectly"
+        return pointer.target
 
     async def pub(
         self,
@@ -605,6 +621,8 @@ class ServerBus(Singleton):
         pubaction: PubAction | None = None,
         opts: PubOpts = PubOpts(),
     ):
+        if os.getenv("TEST", "0") == "1":
+            assert 0, msg
         if pubaction is not None and not isinstance(msg, Req):
             raise InpErr(f"for defined pubaction, {msg} should be req")
 
