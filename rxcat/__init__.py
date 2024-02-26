@@ -10,7 +10,6 @@ every client on connection. For now this is two types of codes:
 """
 
 import asyncio
-import os
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
@@ -21,8 +20,8 @@ from aiohttp.web import WebSocketResponse as Websocket
 from fcode import FcodeCore, code
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr
-from pykit.pointer import Pointer
 from pykit.log import log
+from pykit.pointer import Pointer
 from pykit.rnd import RandomUtils
 from pykit.singleton import Singleton
 
@@ -66,6 +65,9 @@ class Msg(BaseModel):
     """
     To which connids the published msg should be addressed.
     """
+
+    class Config:
+        arbitrary_types_allowed = True
 
     def __init__(self, **data):
         if "msid" not in data:
