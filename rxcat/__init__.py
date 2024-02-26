@@ -629,8 +629,19 @@ class ServerBus(Singleton):
             "usage of base evt class detected," \
                 " or probably pubr pubaction worked incorrectly"
 
-        if not opts.pubr_must_ignore_err_evt:
-            raise 
+        if (
+            isinstance(pointer.target, ErrEvt)
+            and not opts.pubr_must_ignore_err_evt
+        ):
+            final_err = pointer.target.inner_err
+            if not final_err:
+                log.warn(
+                    f"on pubr got err evt {pointer.target} without"
+                     " inner_err attached, which is strange and unexpected"
+                     " => use default Exception"
+                )
+                final_err = Exception(pointer.target.errmsg)
+            raise final_err
 
         return pointer.target
 
