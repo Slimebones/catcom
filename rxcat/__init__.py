@@ -101,6 +101,10 @@ class Msg(BaseModel):
             if k == "msid":
                 is_msid_found = True
                 continue
+            # all inner keys are deleted from the final serialization
+            if k.startswith("inner_"):
+                keys_to_del.append(k)
+                continue
             if v is None:
                 keys_to_del.append(k)
 
@@ -178,6 +182,11 @@ class ErrEvt(Evt):
     errcodeid: int | None = None
     errmsg: str
 
+    inner_err: Exception | None = None
+    """
+    Err that only exists on the inner bus and won't be serialized.
+    """
+
     isThrownByPubAction: bool | None = None
     """
     Errs can be thrown by req-listening action or by req+evt listening
@@ -222,6 +231,11 @@ class PubOpts(BaseModel):
     must_send_to_net: bool = True
     """
     Will send to net if True and code is defined for the msg passed.
+    """
+
+    pubr_must_ignore_err_evt: bool = False
+    """
+    Whether pubr must ignore returned ErrEvt and return it as it is.
     """
 
 MsgFilter = Callable[[Msg], Awaitable[bool]]
@@ -363,6 +377,7 @@ class ServerBus(Singleton):
         evt = ErrEvt(
             errcodeid=errcodeid,
             errmsg=errmsg,
+            inner_err=err,
             rsid=rsid,
             m_toConnids=to_connids_f,
             isThrownByPubAction=is_thrown_by_pubaction
@@ -594,10 +609,10 @@ class ServerBus(Singleton):
 
         def wrapper(aevt: asyncio.Event, evtf_pointer: Pointer[Evt]):
             async def pubaction(_, evt: Evt):
-                if isinstance(evt, ErrEvt):
-                    log.err(evt.errmsg)
-                    return
                 aevt.set()
+                # set if even ErrEvt is returned. It will be handled outside
+                # this wrapper, or ignored to be returned to the caller,
+                # if opts.pubr_must_ignore_err_evt is given.
                 evtf_pointer.target = evt
 
             return pubaction
@@ -613,6 +628,10 @@ class ServerBus(Singleton):
             type(pointer.target) is not Evt, \
             "usage of base evt class detected," \
                 " or probably pubr pubaction worked incorrectly"
+
+        if not opts.pubr_must_ignore_err_evt:
+            raise 
+
         return pointer.target
 
     async def pub(
