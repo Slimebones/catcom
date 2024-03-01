@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr
 from pykit.log import log
 from pykit.pointer import Pointer
-from pykit.rnd import RandomUtils
+from pykit.rand import RandomUtils
 from pykit.singleton import Singleton
 
 if TYPE_CHECKING:
