@@ -240,6 +240,8 @@ class PubOpts(BaseModel):
     Whether pubr must ignore returned ErrEvt and return it as it is.
     """
 
+    on_missing_connid: Callable[[int], Awaitable[None]] | None = None
+
 MsgFilter = Callable[[Msg], Awaitable[bool]]
 
 class SubOpts(BaseModel):
@@ -674,7 +676,7 @@ class ServerBus(Singleton):
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.must_send_to_net:
-            await self._pub_to_net(mtype, msg)
+            await self._pub_to_net(mtype, msg, opts)
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
             for subaction in self._mtype_to_subactions[mtype]:
@@ -686,7 +688,8 @@ class ServerBus(Singleton):
     async def _pub_to_net(
         self,
         mtype: type,
-        msg: Msg
+        msg: Msg,
+        opts: PubOpts
     ):
         mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
         if mcodeid is not None:
@@ -702,6 +705,14 @@ class ServerBus(Singleton):
                             " => del from recipients"
                         )
                         connids_to_del.add(connid)
+                        if opts.on_missing_connid:
+                            try:
+                                await opts.on_missing_connid(connid)
+                            except Exception as err:
+                                log.err("during on_missing_connid fn call, the"
+                                        " following err has occured:")
+                                log.err_or_catch(err, 1)
+                                continue
                 for connid in connids_to_del:
                     connids.remove(connid)
 
