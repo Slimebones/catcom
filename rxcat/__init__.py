@@ -240,7 +240,7 @@ class PubOpts(BaseModel):
     Whether pubr must ignore returned ErrEvt and return it as it is.
     """
 
-    on_missing_connid: Callable[[int], Awaitable[None]] | None = None
+    on_missing_connid: Callable[[int], Coroutine] | None = None
 
 MsgFilter = Callable[[Msg], Awaitable[bool]]
 
