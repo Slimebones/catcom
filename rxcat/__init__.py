@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Coroutine, Self, TypeVar
 from aiohttp.web import WebSocketResponse as Websocket
 from fcode import FcodeCore, code
 from pydantic import BaseModel
-from pykit.err import AlreadyProcessedErr, InpErr
+from pykit.err import AlreadyProcessedErr, InpErr, ValueErr
 from pykit.log import log
 from pykit.pointer import Pointer
 from pykit.rand import RandomUtils
@@ -685,7 +685,7 @@ class ServerBus(Singleton):
                     await self._try_invoke_subaction(subaction, msg))
             if not any(invoke_results):
                 await self.throw_err_evt(
-                    Exception(
+                    ValueErr(
                         f"no subactions succeeded for msg {msg}"),
                     msg
                 )
