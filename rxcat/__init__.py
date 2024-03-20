@@ -679,9 +679,16 @@ class ServerBus(Singleton):
             await self._pub_to_net(mtype, msg, opts)
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
+            invoke_results = []
             for subaction in self._mtype_to_subactions[mtype]:
-                await self._try_invoke_subaction(subaction, msg)
-
+                invoke_results.append(
+                    await self._try_invoke_subaction(subaction, msg))
+            if not any(invoke_results):
+                await self.throw_err_evt(
+                    Exception(
+                        f"no subactions succeeded for msg {msg}"),
+                    msg
+                )
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
 
