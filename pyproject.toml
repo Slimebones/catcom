@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rxcat"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = ["ryzhovalex <thed4rkof@gmail.com>"]
 readme = "README.md"
@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 aiohttp = {extras = ["speedups"], version = "^3.9.3"}
-pykit = {git = "https://github.com/slimebones/pykit.git", rev = "0.5.0"}
+pykit = {git = "https://github.com/slimebones/pykit.git", rev = "0.5.1"}
 
 [tool.poetry.group.dev.dependencies]
 lorem = "^0.1.1"

@@ -1127,7 +1127,7 @@ typing-extensions = ">=4.6.0,<4.7.0 || >4.7.0"
 
 [[package]]
 name = "pykit"
-version = "0.5.0"
+version = "0.5.1"
 description = "Python toolkit."
 optional = false
 python-versions = "^3.11"
@@ -1145,8 +1145,8 @@ pyyaml = "^6.0.1"
 [package.source]
 type = "git"
 url = "https://github.com/slimebones/pykit.git"
-reference = "0.5.0"
-resolved_reference = "62685eb755239376cae7700c4351852a610b9983"
+reference = "0.5.1"
+resolved_reference = "e45c2f39d43f19f979294191c371ef8e6fb3045e"
 
 [[package]]
 name = "pytest"
@@ -1517,4 +1517,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "94cfcebb1c64161da1bff9fd804f67b94b44e1e216493c9d655967f569cd1449"
+content-hash = "9d25a5acd6b221493130822b2ff2dce0129256a2279376409edadd16f9c68714"
