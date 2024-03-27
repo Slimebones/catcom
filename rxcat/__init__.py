@@ -17,9 +17,9 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Coroutine, Self, TypeVar
 
 from aiohttp.web import WebSocketResponse as Websocket
-from fcode import FcodeCore, code
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, ValueErr
+from pykit.fcode import FcodeCore, code
 from pykit.log import log
 from pykit.pointer import Pointer
 from pykit.rand import RandomUtils
@@ -679,10 +679,9 @@ class ServerBus(Singleton):
             await self._pub_to_net(mtype, msg, opts)
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
-            invoke_results = []
-            for subaction in self._mtype_to_subactions[mtype]:
-                invoke_results.append(
-                    await self._try_invoke_subaction(subaction, msg))
+            invoke_results = [
+                await self._try_invoke_subaction(subaction, msg)
+                    for subaction in self._mtype_to_subactions[mtype]]
             if not any(invoke_results):
                 await self.throw_err_evt(
                     ValueErr(

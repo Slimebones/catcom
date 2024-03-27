@@ -1,5 +1,5 @@
 import pytest
-from fcode import code
+from pykit.fcode import code
 
 from rxcat import Evt, Req, ServerBus
 

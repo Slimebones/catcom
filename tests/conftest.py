@@ -1,5 +1,5 @@
 import pytest_asyncio
-from fcode import FcodeCore
+from pykit.fcode import FcodeCore
 
 from rxcat import ServerBus
 
