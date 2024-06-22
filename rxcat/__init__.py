@@ -11,12 +11,14 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import functools
+from re import L
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Coroutine, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Coroutine, Protocol, Self, TypeVar
 
+from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, ValueErr
@@ -24,10 +26,32 @@ from pykit.fcode import FcodeCore, code
 from pykit.log import log
 from pykit.pointer import Pointer
 from pykit.rand import RandomUtils
+from pykit.res import Res
 from pykit.singleton import Singleton
+from result import Err, Ok
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
+
+class ServerRegisterData(BaseModel):
+    """
+    Data formed by the server on RegisterProtocol call.
+    """
+    data: dict[str, Any] | None = None
+    """
+    Dict to be sent back to client with extra information from the resource
+    server.
+    """
+
+class RegisterProtocol(Protocol):
+    """
+    Register function to be called on client RegisterReq arrival.
+    """
+    async def __call__(
+        self,
+        /,
+        tokens: list[str],
+        client_data: dict[str, Any] | None) -> Res[ServerRegisterData]: ...
 
 class internal_InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -42,7 +66,22 @@ class internal_BusUnhandledErr(Exception):
         )
 
 class ServerBusCfg(BaseModel):
+    register: RegisterProtocol | None = None
+    """
+    Function used to register client.
+
+    Defaults to None. If None, all users are still required to send
+    RegisterReq, but no alternative function will be called.
+    """
+
+    msg_queue_max_size: int = 10000
     is_invoked_action_unhandled_errs_logged: bool = False
+    register_timeout: float = 60
+    """
+    How much time a client has to send a register request after they connected.
+
+    If the timeout is reached, the bus disconnects a client.
+    """
 
 class Msg(BaseModel):
     """
@@ -258,19 +297,41 @@ class SubOpts(BaseModel):
     All filters should succeed before msg being passed to a subscriber.
     """
 
+@code("rxcat_register_req")
+class RegisterReq(Req):
+    tokens: list[str]
+    """
+    Client's list of token to manage signed connection.
+
+    Can be empty. The bus does not decide how to operate over the client's
+    connection based on tokens, the resource server does, to which these
+    tokens are passed.
+    """
+
+    data: dict[str, Any] | None = None
+    """
+    Extra client data passed to the resource server.
+    """
+
 SubAction = tuple[Callable[[Msg], Awaitable], SubOpts]
+
+class ConnData(BaseModel):
+    conn: Websocket
+    inp_task: Task | None = None
+    out_task: Task | None = None
+    tokens: list[str]
 
 class ServerBus(Singleton):
     """
-    Server bus implementation.
+    Rxcat server bus implementation.
     """
-    MsgQueueMaxSize = 10000
 
     def __init__(self):
         self._is_initd = False
 
-    async def init(self):
-        self._cfg = ServerBusCfg(is_invoked_action_unhandled_errs_logged=True)
+    async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
+        self._cfg = cfg
+
         FcodeCore.defcode("rxcat_fallback_err", Exception)
         # only server is able to index mcodes, client is not able to send
         # theirs mcodes on conn, so the server must know client codes at boot
@@ -291,8 +352,7 @@ class ServerBus(Singleton):
         self._fallback_errcodeid: int = \
             self._ERRCODE_TO_ERRCODEID["rxcat_fallback_err"]
 
-        self._connsid_to_conn: dict[str, Websocket] = {}
-        self._connsid_to_inp_out_tasks: dict[str, tuple[Task, Task]] = {}
+        self._sid_to_conn_data: dict[str, ConnData] = {}
 
         self._subsid_to_mtype: dict[str, type[Msg]] = {}
         self._subsid_to_subaction: dict[str, SubAction] = {}
@@ -302,10 +362,10 @@ class ServerBus(Singleton):
 
         # network in and out unprocessed yet raw msgs
         self._net_inp_connsid_and_wsmsg_queue: Queue[tuple[str, Wsmsg]] = \
-            Queue(self.MsgQueueMaxSize)
+            Queue(self._cfg.msg_queue_max_size)
         self._net_out_connsids_and_rawmsg_queue: Queue[
             tuple[set[str], dict]
-        ] = Queue(self.MsgQueueMaxSize)
+        ] = Queue(self._cfg.msg_queue_max_size)
 
         self._net_inp_queue_processor: Task | None = None
         self._net_out_queue_processor: Task | None = None
@@ -326,6 +386,7 @@ class ServerBus(Singleton):
         self._rsids_to_del_on_next_pubaction: set[str] = set()
 
         self._is_initd = True
+        self._is_post_initd = False
 
     @property
     def is_initd(self) -> bool:
@@ -445,6 +506,7 @@ class ServerBus(Singleton):
                 indexedErrcodes=self.INDEXED_ERRCODES,
                 rsid=None
             ).serialize_json(self._initd_client_evt_mcodeid)
+        self._is_post_initd = True
 
     @classmethod
     async def destroy(cls):
@@ -464,24 +526,41 @@ class ServerBus(Singleton):
         ServerBus.try_discard()
 
     async def conn(self, conn: Websocket) -> None:
-        if not self._connsid_to_conn:
+        if not self._is_post_initd:
             await self.postinit()
 
         connsid = RandomUtils.makeid()
-        self._connsid_to_conn[connsid] = conn
+        self._sid_to_conn_data[connsid] = ConnData(conn=conn)
         log.info(
             f"accept new conn {conn}, assign id {connsid}",
             2
         )
 
         try:
-            # for now set initd out of order, just by putting preserialized
-            # obj directly
+            (await self._read_first_wsmsg(connsid, conn)).unwrap()
             await conn.send_json(self._preserialized_initd_client_evt)
             await self._read_ws(connsid, conn)
         finally:
+            if not conn.closed:
+                await conn.close()
             assert connsid in self._connsid_to_conn
             del self._connsid_to_conn[connsid]
+
+    async def _read_first_wsmsg(
+            self, connsid: str, conn: Websocket) -> Res[None]:
+        first_wsmsg = await conn.receive(self._cfg.register_timeout)
+        first_msg = await self._try_parse_wsmsg(connsid, first_wsmsg)
+        if not first_msg:
+            return Err(ValueErr(f"failed to parse first msg from"))
+        if not isinstance(first_msg, RegisterReq):
+            return Err(ValueErr(
+                f"first msg should be RegisterReq, got {first_msg}"))
+        if self._cfg.register is not None:
+            register_res = await self._cfg.register(
+                first_msg.tokens, first_msg.data)
+            if isinstance(register_res, Err):
+                return register_res
+        return Ok(None)
 
     async def _read_ws(self, connsid: str, conn: Websocket):
         async for wsmsg in conn:
@@ -491,57 +570,64 @@ class ServerBus(Singleton):
     async def _process_net_inp_queue(self) -> None:
         while True:
             connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
-
-            try:
-                rawmsg: dict = wsmsg.json()
-            except Exception:
-                log.err(f"unable to parse ws msg {wsmsg}")
-                continue
-
-            msid: str | None = rawmsg.get("msid", None)
-            if not msid:
-                log.err("msg without msid => skip silently")
-                continue
-
-            # for future rsid navigation
-            # rsid: str | None = raw_msg.get("rsid", None)
-
-            mcodeid: int | None = rawmsg.get("mcodeid", None)
-            if mcodeid is None:
-                await self.throw_err_evt(
-                    ValueError(
-                        f"got msg {rawmsg} with undefined mcodeid"
-                    )
-                )
-                continue
-            if mcodeid < 0:
-                await self.throw_err_evt(
-                    ValueError(
-                        f"invalid mcodeid {mcodeid}"
-                    )
-                )
-                continue
-            if mcodeid > len(self._INDEXED_ACTIVE_MCODES) - 1:
-                await self.throw_err_evt(ValueError(
-                    f"unrecognized mcodeid {mcodeid}"
-                ))
-                continue
-
-            t: type[Msg] | None = \
-                FcodeCore.try_get_type_for_any_code(
-                    self._INDEXED_ACTIVE_MCODES[mcodeid]
-                )
-            assert t is not None, "if mcodeid found, mtype must be found"
-
-            t = typing.cast(type[Msg], t)
-            rawmsg["m_connsid"] = connsid
-            try:
-                msg = t.deserialize_json(rawmsg)
-            except Exception as err:
-                log.err_or_catch(err, 2)
+            msg = await self._try_parse_wsmsg(connsid, wsmsg)
+            if msg is None:
                 continue
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
+
+    async def _try_parse_wsmsg(
+            self, connsid: str, wsmsg: WSMessage) -> Msg | None:
+        try:
+            rawmsg: dict = wsmsg.json()
+        except Exception:
+            log.err(f"unable to parse ws msg {wsmsg}")
+            return
+
+        msid: str | None = rawmsg.get("msid", None)
+        if not msid:
+            log.err("msg without msid => skip silently")
+            return
+
+        # for future rsid navigation
+        # rsid: str | None = raw_msg.get("rsid", None)
+
+        mcodeid: int | None = rawmsg.get("mcodeid", None)
+        if mcodeid is None:
+            await self.throw_err_evt(
+                ValueError(
+                    f"got msg {rawmsg} with undefined mcodeid"
+                )
+            )
+            return
+        if mcodeid < 0:
+            await self.throw_err_evt(
+                ValueError(
+                    f"invalid mcodeid {mcodeid}"
+                )
+            )
+            return
+        if mcodeid > len(self._INDEXED_ACTIVE_MCODES) - 1:
+            await self.throw_err_evt(ValueError(
+                f"unrecognized mcodeid {mcodeid}"
+            ))
+            return
+
+        t: type[Msg] | None = \
+            FcodeCore.try_get_type_for_any_code(
+                self._INDEXED_ACTIVE_MCODES[mcodeid]
+            )
+        assert t is not None, "if mcodeid found, mtype must be found"
+
+        t = typing.cast(type[Msg], t)
+        rawmsg["m_connsid"] = connsid
+        try:
+            msg = t.deserialize_json(rawmsg)
+        except Exception as err:
+            log.err_or_catch(err, 2)
+            return
+
+        return msg
 
     async def _process_net_out_queue(self) -> None:
         while True:
