@@ -10,6 +10,7 @@ every client on connection. For now this is two types of codes:
 """
 
 import asyncio
+import functools
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
@@ -53,7 +54,7 @@ class Msg(BaseModel):
     """
     msid: str = ""
 
-    m_connsid: int | None = None
+    m_connsid: str | None = None
     """
     From which conn the msg is originated.
 
@@ -61,7 +62,7 @@ class Msg(BaseModel):
     Otherwise it is always set to connsid.
     """
 
-    m_target_connsids: list[int] = []
+    m_target_connsids: list[str] = []
     """
     To which connsids the published msg should be addressed.
     """
@@ -138,7 +139,7 @@ class Req(Msg):
     @abs
     """
 
-    def get_res_connsids(self) -> list[int]:
+    def get_res_connsids(self) -> list[str]:
         return [self.m_connsid] if self.m_connsid is not None else []
 
 class Evt(Msg):
@@ -240,7 +241,13 @@ class PubOpts(BaseModel):
     Whether pubr must ignore returned ErrEvt and return it as it is.
     """
 
-    on_missing_connsid: Callable[[int], Coroutine] | None = None
+    on_missing_connsid: Callable[[str], Coroutine] | None = None
+
+    pubr_timeout: float | None = None
+    """
+    Timeout of awaiting for published message response arrival. Defaults to
+    None, which means no timeout is set.
+    """
 
 MsgFilter = Callable[[Msg], Awaitable[bool]]
 
@@ -264,45 +271,40 @@ class ServerBus(Singleton):
 
     async def init(self):
         self._cfg = ServerBusCfg(is_invoked_action_unhandled_errs_logged=True)
-        FcodeCore.defcode("rxcat.fallback-err", Exception)
+        FcodeCore.defcode("rxcat_fallback_err", Exception)
         # only server is able to index mcodes, client is not able to send
         # theirs mcodes on conn, so the server must know client codes at boot
         #
         # active and legacy codes are bundled together under the same id, so
         # we use a dict here
-        self._McodeToMcodeid: dict[str, int] = {}
-        self._ErrcodeToErrcodeid: dict[str, int] = {}
+        self._MCODE_TO_MCODEID: dict[str, int] = {}
+        self._ERRCODE_TO_ERRCODEID: dict[str, int] = {}
 
-        self._IndexedActiveMcodes: list[str] = []
-        self._IndexedActiveErrcodes: list[str] = []
+        self._INDEXED_ACTIVE_MCODES: list[str] = []
+        self._INDEXED_ACTIVE_ERRCODES: list[str] = []
 
-        self.IndexedMcodes: list[list[str]] = []
-        self.IndexedErrcodes: list[list[str]] = []
+        self.INDEXED_MCODES: list[list[str]] = []
+        self.INDEXED_ERRCODES: list[list[str]] = []
 
         self._init_mcodes()
         self._init_errcodes()
         self._fallback_errcodeid: int = \
-            self._ErrcodeToErrcodeid["rxcat.fallback-err"]
+            self._ERRCODE_TO_ERRCODEID["rxcat.fallback-err"]
 
-        # todo: check id overflow
-        self._next_available_conn_id: int = 0
-        self._next_available_sub_id: int = 0
+        self._connsid_to_conn: dict[str, Websocket] = {}
+        self._connsid_to_inp_out_tasks: dict[str, tuple[Task, Task]] = {}
 
-        self._connsid_to_conn: dict[int, Websocket] = {}
-        self._conn_id_to_inp_out_tasks: \
-            dict[int, tuple[Task, Task]] = {}
-
-        self._subid_to_mtype: dict[int, type[Msg]] = {}
-        self._subid_to_subaction: dict[int, SubAction] = {}
+        self._subsid_to_mtype: dict[str, type[Msg]] = {}
+        self._subsid_to_subaction: dict[str, SubAction] = {}
         self._mtype_to_subactions: \
             dict[type[Msg], list[SubAction]] = {}
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
         # network in and out unprocessed yet raw msgs
-        self._net_inp_connsid_and_wsmsg_queue: Queue[tuple[int, Wsmsg]] = \
+        self._net_inp_connsid_and_wsmsg_queue: Queue[tuple[str, Wsmsg]] = \
             Queue(self.MsgQueueMaxSize)
         self._net_out_connsids_and_rawmsg_queue: Queue[
-            tuple[set[int], dict]
+            tuple[set[str], dict]
         ] = Queue(self.MsgQueueMaxSize)
 
         self._net_inp_queue_processor: Task | None = None
@@ -320,9 +322,7 @@ class ServerBus(Singleton):
                 self._process_net_out_queue()
             )
 
-        self._rsid_to_req_and_pubaction: dict[
-            str, tuple[Req, PubAction]
-        ] = {}
+        self._rsid_to_req_and_pubaction: dict[str, tuple[Req, PubAction]] = {}
         self._rsids_to_del_on_next_pubaction: set[str] = set()
 
         self._is_initd = True
@@ -337,7 +337,7 @@ class ServerBus(Singleton):
         triggered_msg: Msg | None = None,
         pub_opts: PubOpts = PubOpts(),
         *,
-        m_to_connsids: list[int] | None = None,
+        m_to_connsids: list[str] | None = None,
         is_thrown_by_pubaction: bool | None = None
     ):
         """
@@ -394,13 +394,13 @@ class ServerBus(Singleton):
         await self.pub(evt, None, pub_opts)
 
     def try_get_mcodeid_for_mcode(self, mcode: str) -> int | None:
-        res = self._McodeToMcodeid.get(mcode, -1)
+        res = self._MCODE_TO_MCODEID.get(mcode, -1)
         if res == -1:
             return None
         return res
 
     def try_get_errcodeid_for_errcode(self, errcode: str) -> int | None:
-        res = self._ErrcodeToErrcodeid.get(errcode, -1)
+        res = self._ERRCODE_TO_ERRCODEID.get(errcode, -1)
         if res == -1:
             return None
         return res
@@ -408,22 +408,22 @@ class ServerBus(Singleton):
     def _init_mcodes(self):
         collections = FcodeCore.try_get_all_codes(Msg)
         assert collections, "must have at least one mcode defined"
-        self.IndexedMcodes = collections
+        self.INDEXED_MCODES = collections
 
         for id, mcodes in enumerate(collections):
-            self._IndexedActiveMcodes.append(mcodes[0])
+            self._INDEXED_ACTIVE_MCODES.append(mcodes[0])
             for mcode in mcodes:
-                self._McodeToMcodeid[mcode] = id
+                self._MCODE_TO_MCODEID[mcode] = id
 
     def _init_errcodes(self):
         collections = FcodeCore.try_get_all_codes(Exception)
         assert collections, "must have at least one errcode defined"
-        self.IndexedErrcodes = collections
+        self.INDEXED_ERRCODES = collections
 
         for id, errcodes in enumerate(collections):
-            self._IndexedActiveErrcodes.append(errcodes[0])
+            self._INDEXED_ACTIVE_ERRCODES.append(errcodes[0])
             for errcode in errcodes:
-                self._ErrcodeToErrcodeid[errcode] = id
+                self._ERRCODE_TO_ERRCODEID[errcode] = id
 
     async def postinit(self):
         # init mcodes and errcodes for the second time to catch up all defined
@@ -441,8 +441,8 @@ class ServerBus(Singleton):
 
         if not self._preserialized_initd_client_evt:
             self._preserialized_initd_client_evt = InitdClientEvt(
-                indexedMcodes=self.IndexedMcodes,
-                indexedErrcodes=self.IndexedErrcodes,
+                indexedMcodes=self.INDEXED_MCODES,
+                indexedErrcodes=self.INDEXED_ERRCODES,
                 rsid=None
             ).serialize_json(self._initd_client_evt_mcodeid)
 
@@ -467,9 +467,8 @@ class ServerBus(Singleton):
         if not self._connsid_to_conn:
             await self.postinit()
 
-        connsid = self._next_available_conn_id
+        connsid = RandomUtils.makeid()
         self._connsid_to_conn[connsid] = conn
-        self._next_available_conn_id += 1
         log.info(
             f"accept new conn {conn}, assign id {connsid}",
             2
@@ -484,7 +483,7 @@ class ServerBus(Singleton):
             assert connsid in self._connsid_to_conn
             del self._connsid_to_conn[connsid]
 
-    async def _read_ws(self, connsid: int, conn: Websocket):
+    async def _read_ws(self, connsid: str, conn: Websocket):
         async for wsmsg in conn:
             log.info(f"receive: {wsmsg}", 2)
             self._net_inp_connsid_and_wsmsg_queue.put_nowait((connsid, wsmsg))
@@ -492,7 +491,6 @@ class ServerBus(Singleton):
     async def _process_net_inp_queue(self) -> None:
         while True:
             connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
-            assert connsid >= 0
 
             try:
                 rawmsg: dict = wsmsg.json()
@@ -523,7 +521,7 @@ class ServerBus(Singleton):
                     )
                 )
                 continue
-            if mcodeid > len(self._IndexedActiveMcodes) - 1:
+            if mcodeid > len(self._INDEXED_ACTIVE_MCODES) - 1:
                 await self.throw_err_evt(ValueError(
                     f"unrecognized mcodeid {mcodeid}"
                 ))
@@ -531,7 +529,7 @@ class ServerBus(Singleton):
 
             t: type[Msg] | None = \
                 FcodeCore.try_get_type_for_any_code(
-                    self._IndexedActiveMcodes[mcodeid]
+                    self._INDEXED_ACTIVE_MCODES[mcodeid]
                 )
             assert t is not None, "if mcodeid found, mtype must be found"
 
@@ -562,16 +560,31 @@ class ServerBus(Singleton):
         mtype: type[TMsg],
         action: Callable[[TMsg], Awaitable],
         opts: SubOpts = SubOpts(),
-    ) -> int:
-        subid: int = self._next_available_sub_id
-        self._next_available_sub_id += 1
+    ) -> Callable:
+        """
+        Subscribes to certain message.
+
+        Once the message is occured within the bus, the provided action is
+        called.
+
+        Args:
+            mtype:
+                Message type to subscribe to.
+            action:
+                Action to fire once the messsage has arrived.
+            opts (optional):
+                Subscription options.
+        Returns:
+            Unsubscribe function.
+        """
+        subsid = RandomUtils.makeid()
         subaction = (typing.cast(Callable, action), opts)
 
         if mtype not in self._mtype_to_subactions:
             self._mtype_to_subactions[mtype] = []
         self._mtype_to_subactions[mtype].append(subaction)
-        self._subid_to_subaction[subid] = subaction
-        self._subid_to_mtype[subid] = mtype
+        self._subsid_to_subaction[subsid] = subaction
+        self._subsid_to_mtype[subsid] = mtype
 
         if opts.must_receive_last_msg and mtype in self._type_to_last_msg:
             last_msg = self._type_to_last_msg[mtype]
@@ -580,34 +593,37 @@ class ServerBus(Singleton):
                 last_msg
             )
 
-        return subid
+        return functools.partial(self.unsub, subsid)
 
-    async def unsub(self, subid: int):
-        if subid not in self._subid_to_mtype:
-            raise ValueError(f"sub with id {subid} not found")
+    async def unsub(self, subsid: str):
+        if subsid not in self._subsid_to_mtype:
+            raise ValueError(f"sub with id {subsid} not found")
 
-        assert self._subid_to_mtype[subid] in self._mtype_to_subactions
+        assert self._subsid_to_mtype[subsid] in self._mtype_to_subactions
 
-        msg_type = self._subid_to_mtype[subid]
+        msg_type = self._subsid_to_mtype[subsid]
 
-        assert subid in self._subid_to_mtype, "all maps must be synced"
-        assert subid in self._subid_to_subaction, "all maps must be synced"
-        del self._subid_to_mtype[subid]
-        del self._subid_to_subaction[subid]
+        assert subsid in self._subsid_to_mtype, "all maps must be synced"
+        assert subsid in self._subsid_to_subaction, "all maps must be synced"
+        del self._subsid_to_mtype[subsid]
+        del self._subsid_to_subaction[subsid]
         del self._mtype_to_subactions[msg_type]
 
     async def unsub_many(
         self,
-        id: list[int],
+        sids: list[str],
     ) -> None:
-        for i in id:
-            await self.unsub(i)
+        for sid in sids:
+            await self.unsub(sid)
 
     async def pubr(
         self,
         req: Req,
         opts: PubOpts = PubOpts()
     ) -> Evt:
+        """
+        Publishes a message and awaits for the response.
+        """
         aevt = asyncio.Event()
         pointer = Pointer(target=Evt(rsid=""))
 
@@ -626,7 +642,10 @@ class ServerBus(Singleton):
             wrapper(aevt, pointer),
             opts
         )
-        await aevt.wait()
+        if opts.pubr_timeout is None:
+            await aevt.wait()
+        else:
+            await asyncio.wait_for(aevt.wait(), opts.pubr_timeout)
         assert pointer.target
         assert \
             type(pointer.target) is not Evt, \
@@ -699,9 +718,9 @@ class ServerBus(Singleton):
     ):
         mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
         if mcodeid is not None:
-            connsids: set[int] = set(msg.m_target_connsids)
+            connsids: set[str] = set(msg.m_target_connsids)
             if connsids:
-                connsids_to_del: set[int] = set()
+                connsids_to_del: set[str] = set()
 
                 # clean unexistent connsids
                 for connsid in connsids:
@@ -804,13 +823,13 @@ class ServerBus(Singleton):
         mcode: str | None = \
             FcodeCore.try_get_active_code_for_type(mtype)
         if mcode:
-            mcodeid: int = self._McodeToMcodeid.get(mcode, -1)
+            mcodeid: int = self._MCODE_TO_MCODEID.get(mcode, -1)
             assert mcodeid != -1, "must find mcodeid for mcode"
             return mcodeid
         return None
 
     def try_get_mcode_for_mcodeid(self, mcodeid: int) -> str | None:
-        for k, v in self._McodeToMcodeid.items():
+        for k, v in self._MCODE_TO_MCODEID.items():
             if v == mcodeid:
                 return k
         return None
@@ -821,7 +840,7 @@ class ServerBus(Singleton):
         errcode: str | None = \
             FcodeCore.try_get_active_code_for_type(errtype)
         if errcode:
-            errcodeid: int = self._ErrcodeToErrcodeid.get(errcode, -1)
+            errcodeid: int = self._ERRCODE_TO_ERRCODEID.get(errcode, -1)
             assert errcodeid != -1, "must find mcodeid for mcode"
             return errcodeid
         return None
