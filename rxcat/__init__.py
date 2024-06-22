@@ -289,7 +289,7 @@ class ServerBus(Singleton):
         self._init_mcodes()
         self._init_errcodes()
         self._fallback_errcodeid: int = \
-            self._ERRCODE_TO_ERRCODEID["rxcat.fallback-err"]
+            self._ERRCODE_TO_ERRCODEID["rxcat_fallback_err"]
 
         self._connsid_to_conn: dict[str, Websocket] = {}
         self._connsid_to_inp_out_tasks: dict[str, tuple[Task, Task]] = {}
