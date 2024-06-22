@@ -53,17 +53,17 @@ class Msg(BaseModel):
     """
     msid: str = ""
 
-    m_connid: int | None = None
+    m_connsid: int | None = None
     """
     From which conn the msg is originated.
 
     Only actual for the server. If set to None, it means that the msg is inner.
-    Otherwise it is always set to connid.
+    Otherwise it is always set to connsid.
     """
 
-    m_toConnids: list[int] = []
+    m_target_connsids: list[int] = []
     """
-    To which connids the published msg should be addressed.
+    To which connsids the published msg should be addressed.
     """
 
     class Config:
@@ -85,17 +85,17 @@ class Msg(BaseModel):
 
         # DEL SERVER MSG FIELDS
         #       we should do these before key deletion setup
-        if "m_connid" in res and res["m_connid"] is not None:
-            # connids must exist only inside server bus, it's probably an err
-            # if a msg is tried to be serialized with connid, but we will
+        if "m_connsid" in res and res["m_connsid"] is not None:
+            # connsids must exist only inside server bus, it's probably an err
+            # if a msg is tried to be serialized with connsid, but we will
             # throw a warning for now, and ofcourse del the field
             log.warn(
-                "connids must exist only inside server bus, but it is tried"
-                f" to serialize msg {self} with connid != None"
+                "connsids must exist only inside server bus, but it is tried"
+                f" to serialize msg {self} with connsid != None"
             )
-            del res["m_connid"]
-        if "m_toConnids" in res:
-            del res["m_toConnids"]
+            del res["m_connsid"]
+        if "m_target_connsids" in res:
+            del res["m_target_connsids"]
 
         is_msid_found = False
         keys_to_del: list[str] = []
@@ -138,8 +138,8 @@ class Req(Msg):
     @abs
     """
 
-    def get_res_connids(self) -> list[int]:
-        return [self.m_connid] if self.m_connid is not None else []
+    def get_res_connsids(self) -> list[int]:
+        return [self.m_connsid] if self.m_connsid is not None else []
 
 class Evt(Msg):
     """
@@ -158,7 +158,7 @@ class Evt(Msg):
 
     def as_res_from_req(self, req: Req) -> Self:
         self.rsid = req.msid
-        self.m_toConnids = req.get_res_connids()
+        self.m_target_connsids = req.get_res_connsids()
         return self
 
 TEvt = TypeVar("TEvt", bound=Evt)
@@ -240,7 +240,7 @@ class PubOpts(BaseModel):
     Whether pubr must ignore returned ErrEvt and return it as it is.
     """
 
-    on_missing_connid: Callable[[int], Coroutine] | None = None
+    on_missing_connsid: Callable[[int], Coroutine] | None = None
 
 MsgFilter = Callable[[Msg], Awaitable[bool]]
 
@@ -288,7 +288,7 @@ class ServerBus(Singleton):
         self._next_available_conn_id: int = 0
         self._next_available_sub_id: int = 0
 
-        self._connid_to_conn: dict[int, Websocket] = {}
+        self._connsid_to_conn: dict[int, Websocket] = {}
         self._conn_id_to_inp_out_tasks: \
             dict[int, tuple[Task, Task]] = {}
 
@@ -299,9 +299,9 @@ class ServerBus(Singleton):
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
         # network in and out unprocessed yet raw msgs
-        self._net_inp_connid_and_wsmsg_queue: Queue[tuple[int, Wsmsg]] = \
+        self._net_inp_connsid_and_wsmsg_queue: Queue[tuple[int, Wsmsg]] = \
             Queue(self.MsgQueueMaxSize)
-        self._net_out_connids_and_rawmsg_queue: Queue[
+        self._net_out_connsids_and_rawmsg_queue: Queue[
             tuple[set[int], dict]
         ] = Queue(self.MsgQueueMaxSize)
 
@@ -337,7 +337,7 @@ class ServerBus(Singleton):
         triggered_msg: Msg | None = None,
         pub_opts: PubOpts = PubOpts(),
         *,
-        m_to_connids: list[int] | None = None,
+        m_to_connsids: list[int] | None = None,
         is_thrown_by_pubaction: bool | None = None
     ):
         """
@@ -348,9 +348,9 @@ class ServerBus(Singleton):
 
         The thrown err evt will be sent to connections if one of is true:
             - the triggered msg has conn id attached
-            - the m_to_connids field is given
+            - the m_to_connsids field is given
 
-        If both is true, the m_to_connids will be used as override.
+        If both is true, the m_to_connsids will be used as override.
 
         Args:
             err:
@@ -372,18 +372,18 @@ class ServerBus(Singleton):
         else:
             assert triggered_msg is None
 
-        to_connids_f = []
-        if m_to_connids is not None:
-            to_connids_f = m_to_connids
-        elif triggered_msg and triggered_msg.m_connid is not None:
-            to_connids_f = [triggered_msg.m_connid]
+        final_to_connsids = []
+        if m_to_connsids is not None:
+            final_to_connsids = m_to_connsids
+        elif triggered_msg and triggered_msg.m_connsid is not None:
+            final_to_connsids = [triggered_msg.m_connsid]
 
         evt = ErrEvt(
             errcodeid=errcodeid,
             errmsg=errmsg,
             inner_err=err,
             rsid=rsid,
-            m_toConnids=to_connids_f,
+            m_target_connsids=final_to_connsids,
             isThrownByPubAction=is_thrown_by_pubaction
         )
 
@@ -464,14 +464,14 @@ class ServerBus(Singleton):
         ServerBus.try_discard()
 
     async def conn(self, conn: Websocket) -> None:
-        if not self._connid_to_conn:
+        if not self._connsid_to_conn:
             await self.postinit()
 
-        connid = self._next_available_conn_id
-        self._connid_to_conn[connid] = conn
+        connsid = self._next_available_conn_id
+        self._connsid_to_conn[connsid] = conn
         self._next_available_conn_id += 1
         log.info(
-            f"accept new conn {conn}, assign id {connid}",
+            f"accept new conn {conn}, assign id {connsid}",
             2
         )
 
@@ -479,20 +479,20 @@ class ServerBus(Singleton):
             # for now set initd out of order, just by putting preserialized
             # obj directly
             await conn.send_json(self._preserialized_initd_client_evt)
-            await self._read_ws(connid, conn)
+            await self._read_ws(connsid, conn)
         finally:
-            assert connid in self._connid_to_conn
-            del self._connid_to_conn[connid]
+            assert connsid in self._connsid_to_conn
+            del self._connsid_to_conn[connsid]
 
-    async def _read_ws(self, connid: int, conn: Websocket):
+    async def _read_ws(self, connsid: int, conn: Websocket):
         async for wsmsg in conn:
             log.info(f"receive: {wsmsg}", 2)
-            self._net_inp_connid_and_wsmsg_queue.put_nowait((connid, wsmsg))
+            self._net_inp_connsid_and_wsmsg_queue.put_nowait((connsid, wsmsg))
 
     async def _process_net_inp_queue(self) -> None:
         while True:
-            connid, wsmsg = await self._net_inp_connid_and_wsmsg_queue.get()
-            assert connid >= 0
+            connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
+            assert connsid >= 0
 
             try:
                 rawmsg: dict = wsmsg.json()
@@ -536,7 +536,7 @@ class ServerBus(Singleton):
             assert t is not None, "if mcodeid found, mtype must be found"
 
             t = typing.cast(type[Msg], t)
-            rawmsg["m_connid"] = connid
+            rawmsg["m_connsid"] = connsid
             try:
                 msg = t.deserialize_json(rawmsg)
             except Exception as err:
@@ -547,13 +547,13 @@ class ServerBus(Singleton):
 
     async def _process_net_out_queue(self) -> None:
         while True:
-            connids, rawmsg = \
-                await self._net_out_connids_and_rawmsg_queue.get()
+            connsids, rawmsg = \
+                await self._net_out_connsids_and_rawmsg_queue.get()
 
-            log.info(f"send to connids {connids}: {rawmsg}", 2)
+            log.info(f"send to connsids {connsids}: {rawmsg}", 2)
             coros: list[Coroutine] = [
-                self._connid_to_conn[connid].send_json(rawmsg)
-                for connid in connids
+                self._connsid_to_conn[connsid].send_json(rawmsg)
+                for connsid in connsids
             ]
             await asyncio.gather(*coros)
 
@@ -699,32 +699,32 @@ class ServerBus(Singleton):
     ):
         mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
         if mcodeid is not None:
-            connids: set[int] = set(msg.m_toConnids)
-            if connids:
-                connids_to_del: set[int] = set()
+            connsids: set[int] = set(msg.m_target_connsids)
+            if connsids:
+                connsids_to_del: set[int] = set()
 
-                # clean unexistent connids
-                for connid in connids:
-                    if connid not in self._connid_to_conn:
+                # clean unexistent connsids
+                for connsid in connsids:
+                    if connsid not in self._connsid_to_conn:
                         log.err(
-                            f"no conn with id {connid}"
+                            f"no conn with id {connsid}"
                             " => del from recipients"
                         )
-                        connids_to_del.add(connid)
-                        if opts.on_missing_connid:
+                        connsids_to_del.add(connsid)
+                        if opts.on_missing_connsid:
                             try:
-                                await opts.on_missing_connid(connid)
+                                await opts.on_missing_connsid(connsid)
                             except Exception as err:
-                                log.err("during on_missing_connid fn call, the"
+                                log.err("during on_missing_connsid fn call, the"
                                         " following err has occured:")
                                 log.err_or_catch(err, 1)
                                 continue
-                for connid in connids_to_del:
-                    connids.remove(connid)
+                for connsid in connsids_to_del:
+                    connsids.remove(connsid)
 
                 rawmsg = msg.serialize_json(mcodeid)
-                self._net_out_connids_and_rawmsg_queue.put_nowait(
-                    (connids, rawmsg)
+                self._net_out_connsids_and_rawmsg_queue.put_nowait(
+                    (connsids, rawmsg)
                 )
 
     async def _send_evt_as_response(self, evt: Evt):
@@ -771,7 +771,7 @@ class ServerBus(Singleton):
             await self.throw_err_evt(
                 err,
                 evt,
-                m_to_connids=req.m_toConnids,
+                m_to_connsids=req.m_target_connsids,
                 is_thrown_by_pubaction=True
             )
             f = False
