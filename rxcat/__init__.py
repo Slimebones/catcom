@@ -715,8 +715,8 @@ class ServerBus(Singleton):
                             try:
                                 await opts.on_missing_connsid(connsid)
                             except Exception as err:
-                                log.err("during on_missing_connsid fn call, the"
-                                        " following err has occured:")
+                                log.err("during on_missing_connsid fn call"
+                                        " the following err has occured:")
                                 log.err_or_catch(err, 1)
                                 continue
                 for connsid in connsids_to_del:
