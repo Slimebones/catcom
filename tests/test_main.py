@@ -1,6 +1,10 @@
+from pykit.err import ValueErr
 from pykit.fcode import code
+from pykit.res import Res
+from result import Err, Ok
+from pykit.check import check
 
-from rxcat import Evt, Req, ServerBus
+from rxcat import ErrEvt, Evt, Req, ServerBus
 
 
 @code("msg1")
@@ -18,6 +22,41 @@ class _Req1(Req):
 @code("req2")
 class _Req2(Req):
     num: int
+
+async def test_res_returning(server_bus: ServerBus):
+    is_msg1_arrived = False
+    is_msg2_arrived = False
+    is_err_evt_arrived = False
+
+    async def ret_ok(msg) -> Res[None]:
+        nonlocal is_msg1_arrived
+        is_msg1_arrived = True
+        return Ok(None)
+
+    async def ret_err(msg):
+        nonlocal is_msg2_arrived
+        assert msg.msid
+        is_msg2_arrived = True
+        return Err(ValueErr("hello"))
+
+    async def on_err_evt(evt: ErrEvt):
+        nonlocal is_err_evt_arrived
+        assert type(evt.inner_err) is ValueErr
+        assert evt.errmsg == "hello"
+        is_err_evt_arrived = True
+
+    await server_bus.sub(_Req1, ret_ok)
+    await server_bus.sub(_Req2, ret_err)
+    await server_bus.sub(ErrEvt, on_err_evt)
+    await server_bus.pub(_Req1(num=1))
+    await server_bus.pub(_Req2(num=2))
+    await check.aexpect(
+        server_bus.pubr(_Req2(num=3)),
+        ValueErr)
+
+    assert is_msg1_arrived
+    assert is_msg2_arrived
+    assert is_err_evt_arrived
 
 async def test_inner_pubsub(server_bus: ServerBus):
     is_msg1_arrived = False
@@ -51,7 +90,6 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
 
     sm = m.serialize_json(msg1_mcodeid)
 
-    # shouldn't contain lmsid since it's None
     assert sm == {
         "msid": m.msid,
         "mcodeid": msg1_mcodeid,
