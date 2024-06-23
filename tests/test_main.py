@@ -1,4 +1,7 @@
 import pytest
+import asyncio
+import websockets
+import ssl
 from pykit.fcode import code
 
 from rxcat import Evt, Req, ServerBus
@@ -7,7 +10,6 @@ from rxcat import Evt, Req, ServerBus
 @code("msg1")
 class _Evt1(Evt):
     num: int
-
 
 @code("msg2")
 class _Evt2(Evt):
@@ -21,7 +23,6 @@ class _Req1(Req):
 class _Req2(Req):
     num: int
 
-@pytest.mark.asyncio
 async def test_inner_pubsub(server_bus: ServerBus):
     is_msg1_arrived = False
     is_msg2_arrived = False
@@ -46,7 +47,6 @@ async def test_inner_pubsub(server_bus: ServerBus):
     assert is_msg1_arrived
     assert is_msg2_arrived
 
-@pytest.mark.asyncio
 async def test_evt_serialization(server_bus: ServerBus) -> None:
     msg1_mcodeid = server_bus.try_get_mcodeid_for_mtype(_Evt1)
     assert msg1_mcodeid is not None
