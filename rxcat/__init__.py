@@ -35,10 +35,18 @@ from pykit.pointer import Pointer
 from pykit.rand import RandomUtils
 from pykit.res import Res
 from pykit.singleton import Singleton
-from result import Err, Ok
+from result import Err, Ok, UnwrapError
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
+
+# TODO:
+#   make child of pykit.InternalErr (as it gets implementation) - to be able
+#   to enable/disable internal errors sending to net (and additionally log
+#   them by the server bus)
+@code("resource_server_err")
+class ResourceServerErr(Exception):
+    pass
 
 class ServerRegisterData(BaseModel):
     """
@@ -214,7 +222,7 @@ class Evt(Msg):
 
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
-PubAction = Callable[[TReq, TEvt], Awaitable[None]]
+PubAction = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
 
 @code("ok-evt")
 class OkEvt(Evt):
@@ -277,6 +285,7 @@ class InitdClientEvt(Evt):
     # ... here an additional info how to behave properly on the bus can be sent
 
 TMsg = TypeVar("TMsg", bound=Msg)
+Subscriber = Callable[[TMsg], Awaitable[Res[None] | None]]
 
 class PubOpts(BaseModel):
     must_send_to_inner: bool = True
@@ -324,7 +333,7 @@ class RegisterReq(Req):
     Extra client data passed to the resource server.
     """
 
-SubAction = tuple[Callable[[Msg], Awaitable], SubOpts]
+SubAction = tuple[Subscriber, SubOpts]
 
 class ConnData(BaseModel):
     conn: Websocket
@@ -434,6 +443,10 @@ class ServerBus(Singleton):
 
         If both is true, the m_to_connsids will be used as override.
 
+        result.UnwrapError will be fetched for the Result's err_value, and
+        checked that this value is an instance of Exception before making
+        it as the final sent err.
+
         Args:
             err:
                 Err to throw as evt.
@@ -443,6 +456,16 @@ class ServerBus(Singleton):
             pub_opts:
                 Extra pub opts to send to Bus.pub method.
         """
+        if isinstance(err, UnwrapError):
+            res = err.result
+            assert isinstance(res, Err)
+            res_err_value = res.err_value
+            if isinstance(res_err_value, Exception):
+                err = res_err_value
+            else:
+                err = ResourceServerErr(
+                    f"got res with err value {res_err_value},"
+                    " which is not an instance of Exception")
         errcodeid: int | None = self.try_get_errcodeid_for_errtype(type(err))
         errmsg: str = ", ".join([str(a) for a in err.args])
 
@@ -667,7 +690,7 @@ class ServerBus(Singleton):
     async def sub(
         self,
         mtype: type[TMsg],
-        action: Callable[[TMsg], Awaitable],
+        action: Subscriber,
         opts: SubOpts = SubOpts(),
     ) -> Callable:
         """
@@ -890,7 +913,9 @@ class ServerBus(Singleton):
     ) -> bool:
         f = True
         try:
-            await pubaction(req, evt)
+            res = await pubaction(req, evt)
+            if isinstance(res, Err):
+                res.unwrap()
         except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
@@ -919,7 +944,9 @@ class ServerBus(Singleton):
                 return False
 
         try:
-            await subaction[0](msg)
+            res = await subaction[0](msg)
+            if isinstance(res, Err):
+                res.unwrap()
         except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
