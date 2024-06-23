@@ -28,7 +28,7 @@ from typing import (
 from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
 from pydantic import BaseModel
-from pykit.err import AlreadyProcessedErr, InpErr, ValueErr
+from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
 from pykit.fcode import FcodeCore, code
 from pykit.log import log
 from pykit.pointer import Pointer
@@ -399,6 +399,15 @@ class ServerBus(Singleton):
 
         self._is_initd = True
         self._is_post_initd = False
+
+    async def close_conn(self, sid: str) -> Res[None]:
+        if sid not in self._sid_to_conn_data:
+            return Err(NotFoundErr(f"conn with sid {sid}"))
+        conn = self._sid_to_conn_data[sid].conn
+        del self._sid_to_conn_data[sid]
+        if not conn.closed:
+            await conn.close()
+        return Ok(None)
 
     @property
     def is_initd(self) -> bool:
