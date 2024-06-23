@@ -11,12 +11,19 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import functools
-from re import L
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, Coroutine, Protocol, Self, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Coroutine,
+    Protocol,
+    Self,
+    TypeVar,
+    runtime_checkable,
+)
 
 from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
@@ -43,6 +50,7 @@ class ServerRegisterData(BaseModel):
     server.
     """
 
+@runtime_checkable
 class RegisterProtocol(Protocol):
     """
     Register function to be called on client RegisterReq arrival.
@@ -82,6 +90,9 @@ class ServerBusCfg(BaseModel):
 
     If the timeout is reached, the bus disconnects a client.
     """
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class Msg(BaseModel):
     """
@@ -317,9 +328,10 @@ SubAction = tuple[Callable[[Msg], Awaitable], SubOpts]
 
 class ConnData(BaseModel):
     conn: Websocket
-    inp_task: Task | None = None
-    out_task: Task | None = None
     tokens: list[str]
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class ServerBus(Singleton):
     """
@@ -529,38 +541,40 @@ class ServerBus(Singleton):
         if not self._is_post_initd:
             await self.postinit()
 
-        connsid = RandomUtils.makeid()
-        self._sid_to_conn_data[connsid] = ConnData(conn=conn)
-        log.info(
-            f"accept new conn {conn}, assign id {connsid}",
-            2
-        )
+        log.info(f"accept new conn {conn}", 2)
 
         try:
-            (await self._read_first_wsmsg(connsid, conn)).unwrap()
+            connsid = (await self._read_first_wsmsg(conn)).unwrap()
             await conn.send_json(self._preserialized_initd_client_evt)
             await self._read_ws(connsid, conn)
         finally:
             if not conn.closed:
                 await conn.close()
-            assert connsid in self._connsid_to_conn
-            del self._connsid_to_conn[connsid]
+            if connsid in self._sid_to_conn_data:
+                del self._sid_to_conn_data[connsid]
 
-    async def _read_first_wsmsg(
-            self, connsid: str, conn: Websocket) -> Res[None]:
+    async def _read_first_wsmsg(self, conn: Websocket) -> Res[str]:
         first_wsmsg = await conn.receive(self._cfg.register_timeout)
+        connsid = RandomUtils.makeid()
         first_msg = await self._try_parse_wsmsg(connsid, first_wsmsg)
         if not first_msg:
-            return Err(ValueErr(f"failed to parse first msg from"))
+            return Err(ValueErr("failed to parse first msg from"))
         if not isinstance(first_msg, RegisterReq):
             return Err(ValueErr(
                 f"first msg should be RegisterReq, got {first_msg}"))
+
         if self._cfg.register is not None:
             register_res = await self._cfg.register(
                 first_msg.tokens, first_msg.data)
             if isinstance(register_res, Err):
                 return register_res
-        return Ok(None)
+
+        # assign connsid only after receiving correct register req and
+        # approving of it by the resource server
+        self._sid_to_conn_data[connsid] = ConnData(
+            conn=conn, tokens=first_msg.tokens)
+
+        return Ok(connsid)
 
     async def _read_ws(self, connsid: str, conn: Websocket):
         async for wsmsg in conn:
@@ -576,18 +590,18 @@ class ServerBus(Singleton):
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
-    async def _try_parse_wsmsg(
+    async def _try_parse_wsmsg(  # noqa: PLR0911
             self, connsid: str, wsmsg: WSMessage) -> Msg | None:
         try:
             rawmsg: dict = wsmsg.json()
         except Exception:
             log.err(f"unable to parse ws msg {wsmsg}")
-            return
+            return None
 
         msid: str | None = rawmsg.get("msid", None)
         if not msid:
             log.err("msg without msid => skip silently")
-            return
+            return None
 
         # for future rsid navigation
         # rsid: str | None = raw_msg.get("rsid", None)
@@ -599,19 +613,19 @@ class ServerBus(Singleton):
                     f"got msg {rawmsg} with undefined mcodeid"
                 )
             )
-            return
+            return None
         if mcodeid < 0:
             await self.throw_err_evt(
                 ValueError(
                     f"invalid mcodeid {mcodeid}"
                 )
             )
-            return
+            return None
         if mcodeid > len(self._INDEXED_ACTIVE_MCODES) - 1:
             await self.throw_err_evt(ValueError(
                 f"unrecognized mcodeid {mcodeid}"
             ))
-            return
+            return None
 
         t: type[Msg] | None = \
             FcodeCore.try_get_type_for_any_code(
@@ -625,7 +639,7 @@ class ServerBus(Singleton):
             msg = t.deserialize_json(rawmsg)
         except Exception as err:
             log.err_or_catch(err, 2)
-            return
+            return None
 
         return msg
 
@@ -636,7 +650,7 @@ class ServerBus(Singleton):
 
             log.info(f"send to connsids {connsids}: {rawmsg}", 2)
             coros: list[Coroutine] = [
-                self._connsid_to_conn[connsid].send_json(rawmsg)
+                self._sid_to_conn_data[connsid].conn.send_json(rawmsg)
                 for connsid in connsids
             ]
             await asyncio.gather(*coros)
@@ -810,7 +824,7 @@ class ServerBus(Singleton):
 
                 # clean unexistent connsids
                 for connsid in connsids:
-                    if connsid not in self._connsid_to_conn:
+                    if connsid not in self._sid_to_conn_data:
                         log.err(
                             f"no conn with id {connsid}"
                             " => del from recipients"
