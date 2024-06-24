@@ -8,6 +8,7 @@
   be published
 - pub actions also can optionally return `Res[None]` instead of throwing an
   error
+- internal bus stability improvements
 
 # 0.1.1
 
