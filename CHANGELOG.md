@@ -1,4 +1,4 @@
-# 0.2.0 - UNRELEASED
+# 0.2.0
 
 - connections now use sids instead of ids as well as subscriptions
 - added connection management as public API
