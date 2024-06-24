@@ -3,8 +3,11 @@
 - connections now use sids instead of ids as well as subscriptions
 - added connection management as public API
 - added client registration
-- subscribers and pub actions can now optionally return `Res[None]` instead
-  of throwing an error
+- subscribers can now optionally return `Res[Msg | list[Msg] | None]`
+  instead of throwing an error, or to return message or list of messages to
+  be published
+- pub actions also can optionally return `Res[None]` instead of throwing an
+  error
 
 # 0.1.1
 

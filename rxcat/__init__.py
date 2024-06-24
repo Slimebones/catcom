@@ -285,7 +285,7 @@ class InitdClientEvt(Evt):
     # ... here an additional info how to behave properly on the bus can be sent
 
 TMsg = TypeVar("TMsg", bound=Msg)
-Subscriber = Callable[[TMsg], Awaitable[Res[None] | None]]
+Subscriber = Callable[[TMsg], Awaitable[Res[TMsg | list[TMsg] | None] | None]]
 
 class PubOpts(BaseModel):
     must_send_to_inner: bool = True
@@ -942,8 +942,19 @@ class ServerBus(Singleton):
 
         try:
             res = await subaction[0](msg)
-            if isinstance(res, Err):
-                res.unwrap()
+            if isinstance(res, Ok) or isinstance(res, Err):
+                unwrapped = res.unwrap()
+                if isinstance(unwrapped, Msg):
+                    await self.pub(unwrapped)
+                elif isinstance(unwrapped, list):
+                    for m in unwrapped:
+                        if isinstance(m, Msg):
+                            await self.pub(m)
+                        else:
+                            log.err(
+                                f"subscriber {subaction[0]} returned a list"
+                                f" with non-msg item: {m} => skip")
+                            continue
         except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
@@ -977,4 +988,3 @@ class ServerBus(Singleton):
             assert errcodeid != -1, "must find mcodeid for mcode"
             return errcodeid
         return None
-

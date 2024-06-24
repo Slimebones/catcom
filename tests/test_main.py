@@ -27,11 +27,12 @@ async def test_res_returning(server_bus: ServerBus):
     is_msg1_arrived = False
     is_msg2_arrived = False
     is_err_evt_arrived = False
+    is_evt1_arrived = False
 
-    async def ret_ok(msg) -> Res[None]:
+    async def ret_ok(msg) -> Res[_Evt1]:
         nonlocal is_msg1_arrived
         is_msg1_arrived = True
-        return Ok(None)
+        return Ok(_Evt1(num=5, rsid=None))
 
     async def ret_err(msg):
         nonlocal is_msg2_arrived
@@ -45,9 +46,16 @@ async def test_res_returning(server_bus: ServerBus):
         assert evt.errmsg == "hello"
         is_err_evt_arrived = True
 
+    async def on_evt1(evt: _Evt1):
+        nonlocal is_evt1_arrived
+        assert isinstance(evt, _Evt1)
+        assert evt.num == 5
+        is_evt1_arrived = True
+
     await server_bus.sub(_Req1, ret_ok)
     await server_bus.sub(_Req2, ret_err)
     await server_bus.sub(ErrEvt, on_err_evt)
+    await server_bus.sub(_Evt1, on_evt1)
     await server_bus.pub(_Req1(num=1))
     await server_bus.pub(_Req2(num=2))
     await check.aexpect(
@@ -57,6 +65,7 @@ async def test_res_returning(server_bus: ServerBus):
     assert is_msg1_arrived
     assert is_msg2_arrived
     assert is_err_evt_arrived
+    assert is_evt1_arrived
 
 async def test_inner_pubsub(server_bus: ServerBus):
     is_msg1_arrived = False
