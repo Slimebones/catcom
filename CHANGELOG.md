@@ -1,3 +1,7 @@
+# 0.2.1
+
+- put RegisterReq to index 0
+
 # 0.2.0
 
 - connections now use sids instead of ids as well as subscriptions
