@@ -108,3 +108,6 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
     m_after = _Evt1.deserialize_json(sm)
 
     assert m == m_after
+
+def test_register_req_has_index_0(server_bus: ServerBus):
+    assert server_bus.INDEXED_MCODES[0][0] == "rxcat_register_req"

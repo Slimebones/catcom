@@ -524,8 +524,18 @@ class ServerBus(Singleton):
     def _init_mcodes(self):
         collections = FcodeCore.try_get_all_codes(Msg)
         assert collections, "must have at least one mcode defined"
-        self.INDEXED_MCODES = collections
 
+        # put RegisterReq to index 0, according to the protocol
+        register_req_start_index = -1
+        for i, c in enumerate(collections):
+            if c[0] == "rxcat_register_req":
+                register_req_start_index = i
+        assert register_req_start_index >= 0, "RegisterReq must be found"
+        # replace whatever is at index 0, and put register req there
+        collections[0], collections[register_req_start_index] = \
+            collections[register_req_start_index], collections[0]
+
+        self.INDEXED_MCODES = collections
         for id, mcodes in enumerate(collections):
             self._INDEXED_ACTIVE_MCODES.append(mcodes[0])
             for mcode in mcodes:
