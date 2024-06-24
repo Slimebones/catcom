@@ -333,7 +333,18 @@ class RegisterReq(Req):
     Extra client data passed to the resource server.
     """
 
-SubAction = tuple[Subscriber, SubOpts]
+class _SubAction(BaseModel):
+    sid: str
+    subscriber: Subscriber
+    opts: SubOpts
+    is_removing: bool = False
+    """
+    Subsids to be safely removed to not break any iteration cycles or
+    other stuff.
+    """
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class ConnData(BaseModel):
     conn: Websocket
@@ -376,9 +387,9 @@ class ServerBus(Singleton):
         self._sid_to_conn_data: dict[str, ConnData] = {}
 
         self._subsid_to_mtype: dict[str, type[Msg]] = {}
-        self._subsid_to_subaction: dict[str, SubAction] = {}
+        self._subsid_to_subaction: dict[str, _SubAction] = {}
         self._mtype_to_subactions: \
-            dict[type[Msg], list[SubAction]] = {}
+            dict[type[Msg], list[_SubAction]] = {}
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
         # network in and out unprocessed yet raw msgs
@@ -710,7 +721,8 @@ class ServerBus(Singleton):
             Unsubscribe function.
         """
         subsid = RandomUtils.makeid()
-        subaction = (typing.cast(Callable, action), opts)
+        subaction = _SubAction(
+            sid=subsid, subscriber=typing.cast(Callable, action), opts=opts)
 
         if mtype not in self._mtype_to_subactions:
             self._mtype_to_subactions[mtype] = []
@@ -727,9 +739,9 @@ class ServerBus(Singleton):
 
         return functools.partial(self.unsub, subsid)
 
-    async def unsub(self, subsid: str):
+    async def unsub(self, subsid: str) -> Res[None]:
         if subsid not in self._subsid_to_mtype:
-            raise ValueError(f"sub with id {subsid} not found")
+            return Err(ValueError(f"sub with id {subsid} not found"))
 
         assert self._subsid_to_mtype[subsid] in self._mtype_to_subactions
 
@@ -740,6 +752,7 @@ class ServerBus(Singleton):
         del self._subsid_to_mtype[subsid]
         del self._subsid_to_subaction[subsid]
         del self._mtype_to_subactions[msg_type]
+        return Ok(None)
 
     async def unsub_many(
         self,
@@ -830,14 +843,23 @@ class ServerBus(Singleton):
             await self._pub_to_net(mtype, msg, opts)
 
         if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
-            subactions = self._mtype_to_subactions[mtype]
-            if not subactions:
-                await self.throw_err_evt(ValueErr(
-                    f"no subactions for msg type {mtype}"))
-            for subaction in subactions:
-                await self._try_invoke_subaction(subaction, msg)
+            await self._send_to_inner_bus(mtype, msg)
+
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
+
+    async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
+        subactions = self._mtype_to_subactions[mtype]
+        if not subactions:
+            await self.throw_err_evt(ValueErr(
+                f"no subactions for msg type {mtype}"))
+        removing_subaction_sids = []
+        for subaction in subactions:
+            await self._try_invoke_subaction(subaction, msg)
+            if subaction.is_removing:
+                removing_subaction_sids.append(subaction.sid)
+        for removing_subaction_sid in removing_subaction_sids:
+            (await self.unsub(removing_subaction_sid)).unwrap_or(None)
 
     async def _pub_to_net(
         self,
@@ -929,35 +951,50 @@ class ServerBus(Singleton):
             self._try_del_pubaction(req.msid)
         return f
 
+    async def _call_subaction(self, subaction: _SubAction, msg: Msg):
+        res = await subaction.subscriber(msg)
+        if isinstance(res, (Err, Ok)):
+            unwrapped = res.unwrap()
+            if isinstance(unwrapped, Msg):
+                await self.pub(unwrapped)
+            elif isinstance(unwrapped, list):
+                for m in unwrapped:
+                    if isinstance(m, Msg):
+                        await self.pub(m)
+                        continue
+                    log.err(
+                        f"subscriber #{subaction.sid} returned a list"
+                        f" with a non-msg item: {m} => skip")
+            elif unwrapped is not None:
+                log.err(
+                    f"subscriber #{subaction.sid} returned an unexpected"
+                    f" object within the result: {unwrapped} => skip")
+
     async def _try_invoke_subaction(
         self,
-        subaction: SubAction,
+        subaction: _SubAction,
         msg: Msg
     ) -> bool:
-        filters = subaction[1].filters
+        filters = subaction.opts.filters
         for filter in filters:
             this_filter_f = await filter(msg)
             if not this_filter_f:
                 return False
 
         try:
-            res = await subaction[0](msg)
-            if isinstance(res, Ok) or isinstance(res, Err):
-                unwrapped = res.unwrap()
-                if isinstance(unwrapped, Msg):
-                    await self.pub(unwrapped)
-                elif isinstance(unwrapped, list):
-                    for m in unwrapped:
-                        if isinstance(m, Msg):
-                            await self.pub(m)
-                        else:
-                            log.err(
-                                f"subscriber {subaction[0]} returned a list"
-                                f" with non-msg item: {m} => skip")
-                            continue
+            await self._call_subaction(subaction, msg)
         except Exception as err:
             if self._cfg.is_invoked_action_unhandled_errs_logged:
                 self.__action_catch(err)
+            if isinstance(msg, ErrEvt):
+                log.err(
+                    f"ErrEvt subscriber has returned an err {err}, which may"
+                    " result in an endless recursion => remove the subscriber,"
+                    " but send this err further")
+                # but subscriber must be removed carefully, to
+                # not break outer iteration cycles
+                subaction.is_removing = True
+                return False
             await self.throw_err_evt(err, msg)
             return False
 

@@ -1,8 +1,8 @@
+from pykit.check import check
 from pykit.err import ValueErr
 from pykit.fcode import code
 from pykit.res import Res
 from result import Err, Ok
-from pykit.check import check
 
 from rxcat import ErrEvt, Evt, Req, ServerBus
 
