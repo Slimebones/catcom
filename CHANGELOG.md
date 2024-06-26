@@ -1,3 +1,7 @@
+# 0.2.2
+
+- updated pykit
+
 # 0.2.1
 
 - put RegisterReq to index 0
