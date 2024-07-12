@@ -15,6 +15,7 @@ import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
+from pykit.res import eject
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -101,12 +102,16 @@ class ServerBusCfg(BaseModel):
     """
 
     msg_queue_max_size: int = 10000
-    is_invoked_action_unhandled_errs_logged: bool = False
     register_timeout: float = 60
     """
     How much time a client has to send a register request after they connected.
 
     If the timeout is reached, the bus disconnects a client.
+    """
+
+    are_errs_catchlogged: bool = False
+    """
+    Whether to catch and reraise thrown to the bus errors.
     """
 
     class Config:
@@ -443,7 +448,7 @@ class ServerBus(Singleton):
     def is_initd(self) -> bool:
         return self._is_initd
 
-    async def throw_err_evt(
+    async def throw(
         self,
         err: Exception,
         triggered_msg: Msg | None = None,
@@ -517,6 +522,8 @@ class ServerBus(Singleton):
             errcodeid = self._fallback_errcodeid
 
         log.err(f"thrown err evt: {evt}", 1)
+        if self._cfg.are_errs_catchlogged:
+            log.catch(err)
         await self.pub(evt, None, pub_opts)
 
     def try_get_mcodeid_for_mcode(self, mcode: str) -> int | None:
@@ -671,21 +678,21 @@ class ServerBus(Singleton):
 
         mcodeid: int | None = rawmsg.get("mcodeid", None)
         if mcodeid is None:
-            await self.throw_err_evt(
+            await self.throw(
                 ValueError(
                     f"got msg {rawmsg} with undefined mcodeid"
                 )
             )
             return None
         if mcodeid < 0:
-            await self.throw_err_evt(
+            await self.throw(
                 ValueError(
                     f"invalid mcodeid {mcodeid}"
                 )
             )
             return None
         if mcodeid > len(self._INDEXED_ACTIVE_MCODES) - 1:
-            await self.throw_err_evt(ValueError(
+            await self.throw(ValueError(
                 f"unrecognized mcodeid {mcodeid}"
             ))
             return None
@@ -752,7 +759,7 @@ class ServerBus(Singleton):
 
         if opts.must_receive_last_msg and mtype in self._type_to_last_msg:
             last_msg = self._type_to_last_msg[mtype]
-            await self._try_invoke_subaction(
+            await self._try_call_subaction(
                 subaction,
                 last_msg
             )
@@ -871,11 +878,11 @@ class ServerBus(Singleton):
     async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
         subactions = self._mtype_to_subactions[mtype]
         if not subactions:
-            await self.throw_err_evt(ValueErr(
+            await self.throw(ValueErr(
                 f"no subactions for msg type {mtype}"))
         removing_subaction_sids = []
         for subaction in subactions:
-            await self._try_invoke_subaction(subaction, msg)
+            await self._try_call_subaction(subaction, msg)
             if subaction.is_removing:
                 removing_subaction_sids.append(subaction.sid)
         for removing_subaction_sid in removing_subaction_sids:
@@ -933,7 +940,7 @@ class ServerBus(Singleton):
         if req_and_pubaction is not None:
             req = req_and_pubaction[0]
             pubaction = req_and_pubaction[1]
-            await self._try_invoke_pubaction(pubaction, req, evt)
+            await self._try_call_pubaction(pubaction, req, evt)
 
     def _try_del_pubaction(self, rsid: str) -> bool:
         if rsid not in self._rsid_to_req_and_pubaction:
@@ -941,10 +948,7 @@ class ServerBus(Singleton):
         del self._rsid_to_req_and_pubaction[rsid]
         return True
 
-    def __action_catch(self, err: Exception):
-        log.catch(err)
-
-    async def _try_invoke_pubaction(
+    async def _try_call_pubaction(
         self,
         pubaction: PubAction,
         req: Req,
@@ -954,13 +958,11 @@ class ServerBus(Singleton):
         try:
             res = await pubaction(req, evt)
             if isinstance(res, Err):
-                res.unwrap()
+                eject(res)
         except Exception as err:
-            if self._cfg.is_invoked_action_unhandled_errs_logged:
-                self.__action_catch(err)
             # technically, the msg which caused the err is evt, since on evt
             # the pubaction is finally called
-            await self.throw_err_evt(
+            await self.throw(
                 err,
                 evt,
                 m_to_connsids=req.m_target_connsids,
@@ -974,7 +976,7 @@ class ServerBus(Singleton):
     async def _call_subaction(self, subaction: _SubAction, msg: Msg):
         res = await subaction.subscriber(msg)
         if isinstance(res, (Err, Ok)):
-            unwrapped = res.unwrap()
+            unwrapped = eject(res)
             if isinstance(unwrapped, Msg):
                 await self.pub(unwrapped)
             elif isinstance(unwrapped, list):
@@ -990,7 +992,7 @@ class ServerBus(Singleton):
                     f"subscriber #{subaction.sid} returned an unexpected"
                     f" object within the result: {unwrapped} => skip")
 
-    async def _try_invoke_subaction(
+    async def _try_call_subaction(
         self,
         subaction: _SubAction,
         msg: Msg
@@ -1004,8 +1006,6 @@ class ServerBus(Singleton):
         try:
             await self._call_subaction(subaction, msg)
         except Exception as err:
-            if self._cfg.is_invoked_action_unhandled_errs_logged:
-                self.__action_catch(err)
             if isinstance(msg, ErrEvt):
                 log.err(
                     f"ErrEvt subscriber has returned an err {err}, which may"
@@ -1015,7 +1015,7 @@ class ServerBus(Singleton):
                 # not break outer iteration cycles
                 subaction.is_removing = True
                 return False
-            await self.throw_err_evt(err, msg)
+            await self.throw(err, msg)
             return False
 
         return True
