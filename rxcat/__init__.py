@@ -976,21 +976,21 @@ class ServerBus(Singleton):
     async def _call_subaction(self, subaction: _SubAction, msg: Msg):
         res = await subaction.subscriber(msg)
         if isinstance(res, (Err, Ok)):
-            unwrapped = eject(res)
-            if isinstance(unwrapped, Msg):
-                await self.pub(unwrapped)
-            elif isinstance(unwrapped, list):
-                for m in unwrapped:
+            val = eject(res)
+            if isinstance(val, Msg):
+                await self.pub(val)
+            elif isinstance(val, list):
+                for m in val:
                     if isinstance(m, Msg):
                         await self.pub(m)
                         continue
                     log.err(
                         f"subscriber #{subaction.sid} returned a list"
                         f" with a non-msg item: {m} => skip")
-            elif unwrapped is not None:
+            elif val is not None:
                 log.err(
                     f"subscriber #{subaction.sid} returned an unexpected"
-                    f" object within the result: {unwrapped} => skip")
+                    f" object within the result: {val} => skip")
 
     async def _try_call_subaction(
         self,
