@@ -15,7 +15,6 @@ import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
-from pykit.res import eject
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -34,7 +33,7 @@ from pykit.fcode import FcodeCore, code
 from pykit.log import log
 from pykit.pointer import Pointer
 from pykit.rand import RandomUtils
-from pykit.res import Res
+from pykit.res import Res, eject
 from pykit.singleton import Singleton
 from result import Err, Ok, UnwrapError
 
