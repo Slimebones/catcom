@@ -6,7 +6,7 @@ them are replaced by codeids, which is known at server boot and shared with
 every client on connection. For now this is two types of codes:
     - message codes (mcode, mcodeid)
     - error codes (errcode, errcodeid) - required since we use general
-      "ThrownErrEvt" for every err, and attach an additional "errcodeid".
+        "ThrownErrEvt" for every err, and attach an additional "errcodeid".
 """
 
 import asyncio
@@ -39,6 +39,16 @@ from result import Err, Ok, UnwrapError
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
+
+__all__ = [
+    "ServerBus",
+    "Msg",
+    "Req",
+    "Evt",
+    "ErrEvt",
+    "ResourceServerErr",
+    "RegisterProtocol"
+]
 
 # TODO:
 #   make child of pykit.InternalErr (as it gets implementation) - to be able

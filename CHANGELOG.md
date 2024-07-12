@@ -1,3 +1,7 @@
+# 0.3.0 - UNRELEASED
+
+- updated pykit@0.8.0
+
 # 0.2.3
 
 - updated pykit
