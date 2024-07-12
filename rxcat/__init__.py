@@ -614,7 +614,7 @@ class ServerBus(Singleton):
         log.info(f"accept new conn {conn}", 2)
 
         try:
-            connsid = (await self._read_first_wsmsg(conn)).unwrap()
+            connsid = eject(await self._read_first_wsmsg(conn))
             await conn.send_json(self._preserialized_initd_client_evt)
             await self._read_ws(connsid, conn)
         finally:
