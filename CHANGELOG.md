@@ -8,6 +8,7 @@
 - ServerBusCfg: renamed register -> register_fn
 - setup ContextVar for subaction subscriber call
 - added support for custom subaction context functions
+- added ErrEvt.errtype which is set to fully qualified string representation of an error type
 
 # 0.2.3
 
