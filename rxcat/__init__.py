@@ -205,6 +205,7 @@ class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
     """
+    _code_to_rpcfn: dict[str, Rpcfn] = {}
 
     def __init__(self):
         self._is_initd = False
@@ -267,7 +268,6 @@ class ServerBus(Singleton):
 
         self._is_initd = True
         self._is_post_initd = False
-        self._code_to_rpcfn: dict[str, Rpcfn] = {}
 
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn_data:
@@ -282,11 +282,12 @@ class ServerBus(Singleton):
     def is_initd(self) -> bool:
         return self._is_initd
 
-    def register_rpc(self, code: str, fn: Rpcfn):
-        if code in self._code_to_rpcfn:
+    @classmethod
+    def register_rpc(cls, code: str, fn: Rpcfn):
+        if code in cls._code_to_rpcfn:
             log.err(f"rpc code {code} is already registered => skip")
             return
-        self._code_to_rpcfn[code] = fn
+        cls._code_to_rpcfn[code] = fn
 
     def _checkthrow_norpc_msg(self, msg: Msg | type[Msg], ctx: str):
         """
@@ -520,8 +521,43 @@ class ServerBus(Singleton):
             msg = await self._try_parse_wsmsg(connsid, wsmsg)
             if msg is None:
                 continue
+            elif isinstance(msg, RpcEvt):
+                log.err(
+                    f"server bus won't accept RpcEvt messages, got {msg}"
+                    " => skip")
+                return
+            elif isinstance(msg, RpcReq):
+                # process rpc in a separate task to not block inp queue
+                # processing
+                asyncio.create_task(self._call_rpc(msg))
+                return
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
+
+    async def _call_rpc(self, req: RpcReq):
+        code, token = req.key.split(":")
+        if code not in self._code_to_rpcfn:
+            log.err(f"no such rpc code {code} for req {req} => skip")
+            return
+        fn = self._code_to_rpcfn[code]
+        try:
+            res = await fn(**req.kwargs)
+        except Exception as err:
+            log.warn(
+                f"unhandled exception occured for rpcfn on req {req}"
+                " => wrap it to usual RpcEvt")
+            res = Err(err)
+        val: Any
+        if isinstance(res, Ok):
+            val = res.ok_value
+        elif isinstance(res, Err):
+            val = res.err_value
+        else:
+            log.err(
+                f"rpcfn on req {req} returned non-res val {res} => skip")
+            return
+
+        evt = RpcEvt(key=req.key, val=).as_res_from_req(req)
 
     async def _try_parse_wsmsg(  # noqa: PLR0911
             self, connsid: str, wsmsg: WSMessage) -> Msg | None:
