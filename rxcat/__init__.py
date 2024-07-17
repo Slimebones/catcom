@@ -50,7 +50,7 @@ from rxcat._msg import (
     TMsg,
     TReq,
 )
-from rxcat._rpc import RpcEvt, RpcFn, RpcReq, server_rpc
+from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
@@ -72,6 +72,13 @@ __all__ = [
     "RpcFn",
     "server_rpc"
 ]
+
+# placed here and not at _rpc.py to avoid circulars
+def server_rpc(code: str):
+    def inner(target: TRpcFn) -> TRpcFn:
+        ServerBus.register_rpc(code, target)
+        return target
+    return inner
 
 # TODO:
 #   make child of pykit.InternalErr (as it gets implementation) - to be able
@@ -205,7 +212,8 @@ class ServerBusCfg(BaseModel):
     If the timeout is reached, the bus disconnects a client.
     """
 
-    subaction_ctx_fn: Callable[[Msg], Awaitable[CtxManager]] | None = None
+    subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
+    rpc_ctxfn: Callable[[RpcReq], Awaitable[CtxManager]] | None = None
 
     msg_queue_max_size: int = 10000
     are_errs_catchlogged: bool = False
@@ -536,23 +544,25 @@ class ServerBus(Singleton):
         while True:
             connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
             msg = await self._try_parse_wsmsg(connsid, wsmsg)
+            await self.inner__accept_net_msg(msg)
 
-            if msg is None:
-                continue
-            elif isinstance(msg, RpcEvt):
-                log.err(
-                    f"server bus won't accept RpcEvt messages, got {msg}"
-                    " => skip")
-                return
-            elif isinstance(msg, RpcReq):
-                # process rpc in a separate task to not block inp queue
-                # processing
-                task = asyncio.create_task(self._call_rpc(msg))
-                self._rpc_tasks.add(task)
-                task.add_done_callback(self._rpc_tasks.discard)
-                return
-            # publish to inner bus with no duplicate net resending
-            await self.pub(msg, None, PubOpts(must_send_to_net=False))
+    async def inner__accept_net_msg(self, msg: Msg | None):
+        if msg is None:
+            return
+        elif isinstance(msg, RpcEvt):
+            log.err(
+                f"server bus won't accept RpcEvt messages, got {msg}"
+                " => skip")
+            return
+        elif isinstance(msg, RpcReq):
+            # process rpc in a separate task to not block inp queue
+            # processing
+            task = asyncio.create_task(self._call_rpc(msg))
+            self._rpc_tasks.add(task)
+            task.add_done_callback(self._rpc_tasks.discard)
+            return
+        # publish to inner bus with no duplicate net resending
+        await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
     async def _call_rpc(self, req: RpcReq):
         code, _ = req.key.split(":")
@@ -560,12 +570,31 @@ class ServerBus(Singleton):
             log.err(f"no such rpc code {code} for req {req} => skip")
             return
         fn = self._code_to_rpcfn[code]
+
+        _rxcat_ctx.set(self._get_ctx_dict_for_msg(req))
+
+        ctx_manager: CtxManager | None = None
+        if self._cfg.rpc_ctxfn is not None:
+            try:
+                ctx_manager = await self._cfg.rpc_ctxfn(req)
+            except Exception as err:
+                log.err(
+                    f"err {get_fully_qualified_name(err)} is occured"
+                    f" during rpx ctx manager retrieval for req {req} => skip")
+                log.catch(err)
+                return
         try:
-            res = await fn(req.kwargs)
+            if ctx_manager:
+                async with ctx_manager:
+                    res = await fn(req.kwargs)
+            else:
+                res = await fn(req.kwargs)
         except Exception as err:
             log.warn(
                 f"unhandled exception occured for rpcfn on req {req}"
-                " => wrap it to usual RpcEvt")
+                " => wrap it to usual RpcEvt;"
+                f" exception {get_fully_qualified_name(err)}")
+            log.catch(err)
             res = Err(err)
         val: Any
         if isinstance(res, Ok):
@@ -906,8 +935,8 @@ class ServerBus(Singleton):
     async def _call_subaction(self, subaction: _SubAction, msg: Msg):
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
-        if self._cfg.subaction_ctx_fn is not None:
-            ctx_manager = await self._cfg.subaction_ctx_fn(msg)
+        if self._cfg.subaction_ctxfn is not None:
+            ctx_manager = await self._cfg.subaction_ctxfn(msg)
             async with ctx_manager:
                 res = await subaction.subscriber(msg)
         else:

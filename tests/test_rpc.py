@@ -15,9 +15,6 @@ async def test_rpc(server_bus: ServerBus):
         assert email == "test_email"
         return Ok(0)
     ServerBus.register_rpc("update_email", update_email)
-    ws = Ws()
-    await server_bus.conn(ws)
-    await ws.send_json(RpcReq(
-        key="update_email:" + RandomUtils.makeid(), kwargs={}).model_dump())
-    print(await ws.receive_json())
+    await server_bus.inner__accept_net_msg(RpcReq(
+        key="update_email:" + RandomUtils.makeid(), kwargs={}))
     assert 0

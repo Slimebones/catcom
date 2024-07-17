@@ -12,7 +12,6 @@ from typing import Any, Protocol, TypeVar
 from pykit.fcode import code
 from pykit.res import Res
 
-from rxcat import ServerBus
 from rxcat._msg import Evt, Req
 
 
@@ -35,8 +34,3 @@ class RpcEvt(Evt):
 class RpcFn(Protocol):
     async def __call__(self, data: dict) -> Res[Any]: ...
 TRpcFn = TypeVar("TRpcFn", bound=RpcFn)
-def server_rpc(code: str):
-    def inner(target: TRpcFn) -> TRpcFn:
-        ServerBus.register_rpc(code, target)
-        return target
-    return inner
