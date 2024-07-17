@@ -535,7 +535,7 @@ class ServerBus(Singleton):
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
     async def _call_rpc(self, req: RpcReq):
-        code, token = req.key.split(":")
+        code, _ = req.key.split(":")
         if code not in self._code_to_rpcfn:
             log.err(f"no such rpc code {code} for req {req} => skip")
             return
@@ -557,7 +557,8 @@ class ServerBus(Singleton):
                 f"rpcfn on req {req} returned non-res val {res} => skip")
             return
 
-        evt = RpcEvt(key=req.key, val=).as_res_from_req(req)
+        evt = RpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
+        await self._pub_to_net(type(evt), evt)
 
     async def _try_parse_wsmsg(  # noqa: PLR0911
             self, connsid: str, wsmsg: WSMessage) -> Msg | None:
@@ -793,7 +794,7 @@ class ServerBus(Singleton):
         self,
         mtype: type,
         msg: Msg,
-        opts: PubOpts
+        opts: PubOpts = PubOpts()
     ):
         mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
         if mcodeid is not None:
