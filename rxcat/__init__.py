@@ -10,6 +10,7 @@ every client on connection. For now this is two types of codes:
 """
 
 import asyncio
+from contextvars import ContextVar
 import functools
 import typing
 from asyncio import Task
@@ -27,6 +28,7 @@ from typing import (
 
 from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
+import loguru
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
 from pykit.fcode import FcodeCore, code
@@ -367,6 +369,8 @@ class ConnData(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+_rxcat_ctx = ContextVar("rxcat_ctx", default={})
+
 class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
@@ -536,6 +540,12 @@ class ServerBus(Singleton):
         if res == -1:
             return None
         return res
+
+    def get_errcode_for_errcodeid(self, errcodeid: int) -> Res[str]:
+        for k, v in self._ERRCODE_TO_ERRCODEID.items():
+            if v == errcodeid:
+                return Ok(k)
+        return Err(NotFoundErr(f"errcode for errcodeid {errcodeid}"))
 
     def _init_mcodes(self):
         collections = FcodeCore.try_get_all_codes(Msg)
@@ -972,7 +982,28 @@ class ServerBus(Singleton):
             self._try_del_pubaction(req.msid)
         return f
 
+    def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
+        ctx_dict = _rxcat_ctx.get().copy()
+
+        if msg.m_connsid:
+            ctx_dict["connsid"] = msg.m_connsid
+        if isinstance(msg, ErrEvt):
+            if msg.errcodeid is not None:
+                errcode_res = self.get_errcode_for_errcodeid(msg.errcodeid)
+                if isinstance(errcode_res, Ok):
+                    ctx_dict["errcode"] = errcode_res.ok
+        else:
+            mcode = self.try_get_mcode_for_mtype(type(msg))
+            if mcode is not None:
+                ctx_dict["mcode"] = mcode
+
+        ctx_dict["msg"] = msg.model_dump()
+
+        return ctx_dict
+
     async def _call_subaction(self, subaction: _SubAction, msg: Msg):
+        _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
+
         res = await subaction.subscriber(msg)
         if isinstance(res, (Err, Ok)):
             val = eject(res)
@@ -1028,6 +1059,9 @@ class ServerBus(Singleton):
             return mcodeid
         return None
 
+    def try_get_mcode_for_mtype(self, mtype: type[Msg]) -> str | None:
+        return FcodeCore.try_get_active_code_for_type(mtype)
+
     def try_get_mcode_for_mcodeid(self, mcodeid: int) -> str | None:
         for k, v in self._MCODE_TO_MCODEID.items():
             if v == mcodeid:
@@ -1044,3 +1078,8 @@ class ServerBus(Singleton):
             assert errcodeid != -1, "must find mcodeid for mcode"
             return errcodeid
         return None
+
+    def  try_get_errcode_for_errtype(
+        self, errtype: type[Exception]
+    ) -> str | None:
+        return FcodeCore.try_get_active_code_for_type(errtype)
