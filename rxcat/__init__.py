@@ -11,6 +11,7 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import functools
+from inspect import isclass
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
@@ -34,7 +35,7 @@ from result import Err, Ok, UnwrapError
 
 from rxcat._msg import (ErrEvt, Evt, InitdClientEvt, Msg, OkEvt, Req, TEvt,
                         TMsg, TReq)
-from rxcat._rpc import RpcEvt, RpcReq, RpcFn, server_rpc
+from rxcat._rpc import RpcEvt, RpcReq, Rpcfn, server_rpc
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
@@ -53,7 +54,7 @@ __all__ = [
 
     "RpcReq",
     "RpcEvt",
-    "RpcFn",
+    "Rpcfn",
     "server_rpc"
 ]
 
@@ -266,6 +267,7 @@ class ServerBus(Singleton):
 
         self._is_initd = True
         self._is_post_initd = False
+        self._code_to_rpcfn: dict[str, Rpcfn] = {}
 
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn_data:
@@ -280,7 +282,27 @@ class ServerBus(Singleton):
     def is_initd(self) -> bool:
         return self._is_initd
 
-    def inner__register_rpc(self, fn: RpcFn):
+    def register_rpc(self, code: str, fn: Rpcfn):
+        if code in self._code_to_rpcfn:
+            log.err(f"rpc code {code} is already registered => skip")
+            return
+        self._code_to_rpcfn[code] = fn
+
+    def _checkthrow_norpc_msg(self, msg: Msg | type[Msg], ctx: str):
+        """
+        Since rpc msgs cannot participate in actions like "sub" and "pub",
+        we have a separate fn to check this.
+        """
+        iscls = isclass(msg)
+        if (
+            (
+                iscls and (issubclass(msg, RpcReq) or issubclass(msg, RpcEvt)))
+            or (
+                not iscls and (
+                    isinstance(msg, RpcReq) or isinstance(msg, RpcEvt)))):
+            raise ValueErr(
+                f"msg {msg} in context of \"{ctx}\" cannot be associated with"
+                " rpc")
 
     async def throw(
         self,
@@ -588,6 +610,7 @@ class ServerBus(Singleton):
         Returns:
             Unsubscribe function.
         """
+        self._checkthrow_norpc_msg(mtype, "subscription")
         subsid = RandomUtils.makeid()
         subaction = _SubAction(
             sid=subsid, subscriber=typing.cast(Callable, action), opts=opts)
@@ -687,6 +710,7 @@ class ServerBus(Singleton):
         pubaction: PubAction | None = None,
         opts: PubOpts = PubOpts(),
     ):
+        self._checkthrow_norpc_msg(msg, "publication")
         if pubaction is not None and not isinstance(msg, Req):
             raise InpErr(f"for defined pubaction, {msg} should be req")
 

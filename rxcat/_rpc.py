@@ -25,9 +25,9 @@ class RpcEvt(Evt):
     Returned val can be anything parseable, including exceptions.
     """
 
-RpcFn = Callable[[dict], Awaitable[Any]]
-TRpcFn = TypeVar("TRpcFn", bound=RpcFn)
+Rpcfn = Callable[[dict], Awaitable[Any]]
+TRpcfn = TypeVar("TRpcfn", bound=Rpcfn)
 def server_rpc(code: str):
-    def inner(target: TRpcFn) -> TRpcFn:
+    def inner(target: TRpcfn) -> TRpcfn:
         return target
     return inner
