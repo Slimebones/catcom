@@ -10,18 +10,16 @@ every client on connection. For now this is two types of codes:
 """
 
 import asyncio
-from contextvars import ContextVar
 import functools
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncGenerator,
     Coroutine,
-    Generator,
     Protocol,
     Self,
     TypeVar,
@@ -30,7 +28,6 @@ from typing import (
 
 from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
-import loguru
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
 from pykit.fcode import FcodeCore, code
