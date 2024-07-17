@@ -11,14 +11,20 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import functools
-from inspect import isclass
 import typing
 from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from typing import (TYPE_CHECKING, Any, Coroutine, Protocol, TypeVar,
-                    runtime_checkable)
+from inspect import isclass
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Coroutine,
+    Protocol,
+    runtime_checkable,
+)
 
 from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
@@ -33,9 +39,18 @@ from pykit.res import Res, eject
 from pykit.singleton import Singleton
 from result import Err, Ok, UnwrapError
 
-from rxcat._msg import (ErrEvt, Evt, InitdClientEvt, Msg, OkEvt, Req, TEvt,
-                        TMsg, TReq)
-from rxcat._rpc import RpcEvt, RpcReq, Rpcfn, server_rpc
+from rxcat._msg import (
+    ErrEvt,
+    Evt,
+    InitdClientEvt,
+    Msg,
+    OkEvt,
+    Req,
+    TEvt,
+    TMsg,
+    TReq,
+)
+from rxcat._rpc import RpcEvt, RpcFn, RpcReq, server_rpc
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
@@ -44,7 +59,7 @@ __all__ = [
     "ServerBus",
 
     "ResourceServerErr",
-    "RegisterProtocol",
+    "RegisterFn",
 
     "Msg",
     "Req",
@@ -54,7 +69,7 @@ __all__ = [
 
     "RpcReq",
     "RpcEvt",
-    "Rpcfn",
+    "RpcFn",
     "server_rpc"
 ]
 
@@ -77,7 +92,7 @@ class ServerRegisterData(BaseModel):
     """
 
 @runtime_checkable
-class RegisterProtocol(Protocol):
+class RegisterFn(Protocol):
     """
     Register function to be called on client RegisterReq arrival.
     """
@@ -176,7 +191,7 @@ class CtxManager(Protocol):
     async def __aexit__(self, *args): ...
 
 class ServerBusCfg(BaseModel):
-    register_fn: RegisterProtocol | None = None
+    register_fn: RegisterFn | None = None
     """
     Function used to register client.
 
@@ -205,7 +220,7 @@ class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
     """
-    _code_to_rpcfn: dict[str, Rpcfn] = {}
+    _code_to_rpcfn: ClassVar[dict[str, RpcFn]] = {}
 
     def __init__(self):
         self._is_initd = False
@@ -269,6 +284,8 @@ class ServerBus(Singleton):
         self._is_initd = True
         self._is_post_initd = False
 
+        self._rpc_tasks: set[asyncio.Task] = set()
+
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn_data:
             return Err(NotFoundErr(f"conn with sid {sid}"))
@@ -283,7 +300,7 @@ class ServerBus(Singleton):
         return self._is_initd
 
     @classmethod
-    def register_rpc(cls, code: str, fn: Rpcfn):
+    def register_rpc(cls, code: str, fn: RpcFn):
         if code in cls._code_to_rpcfn:
             log.err(f"rpc code {code} is already registered => skip")
             return
@@ -300,7 +317,7 @@ class ServerBus(Singleton):
                 iscls and (issubclass(msg, RpcReq) or issubclass(msg, RpcEvt)))
             or (
                 not iscls and (
-                    isinstance(msg, RpcReq) or isinstance(msg, RpcEvt)))):
+                    isinstance(msg, (RpcEvt, RpcReq))))):
             raise ValueErr(
                 f"msg {msg} in context of \"{ctx}\" cannot be associated with"
                 " rpc")
@@ -519,6 +536,7 @@ class ServerBus(Singleton):
         while True:
             connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
             msg = await self._try_parse_wsmsg(connsid, wsmsg)
+
             if msg is None:
                 continue
             elif isinstance(msg, RpcEvt):
@@ -529,7 +547,9 @@ class ServerBus(Singleton):
             elif isinstance(msg, RpcReq):
                 # process rpc in a separate task to not block inp queue
                 # processing
-                asyncio.create_task(self._call_rpc(msg))
+                task = asyncio.create_task(self._call_rpc(msg))
+                self._rpc_tasks.add(task)
+                task.add_done_callback(self._rpc_tasks.discard)
                 return
             # publish to inner bus with no duplicate net resending
             await self.pub(msg, None, PubOpts(must_send_to_net=False))
@@ -541,7 +561,7 @@ class ServerBus(Singleton):
             return
         fn = self._code_to_rpcfn[code]
         try:
-            res = await fn(**req.kwargs)
+            res = await fn(req.kwargs)
         except Exception as err:
             log.warn(
                 f"unhandled exception occured for rpcfn on req {req}"
