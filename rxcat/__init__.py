@@ -34,19 +34,27 @@ from result import Err, Ok, UnwrapError
 
 from rxcat._msg import (ErrEvt, Evt, InitdClientEvt, Msg, OkEvt, Req, TEvt,
                         TMsg, TReq)
+from rxcat._rpc import RpcEvt, RpcReq, RpcFn, server_rpc
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
 
 __all__ = [
     "ServerBus",
+
+    "ResourceServerErr",
+    "RegisterProtocol",
+
     "Msg",
     "Req",
     "Evt",
     "ErrEvt",
     "OkEvt",
-    "ResourceServerErr",
-    "RegisterProtocol"
+
+    "RpcReq",
+    "RpcEvt",
+    "RpcFn",
+    "server_rpc"
 ]
 
 # TODO:
@@ -271,6 +279,8 @@ class ServerBus(Singleton):
     @property
     def is_initd(self) -> bool:
         return self._is_initd
+
+    def inner__register_rpc(self, fn: RpcFn):
 
     async def throw(
         self,
