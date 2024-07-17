@@ -15,6 +15,9 @@ async def test_rpc(server_bus: ServerBus):
         assert username == "test_username"
         assert email == "test_email"
         return Ok(0)
+    async def on_send(connsids: set[str], rawmsg: dict):
+        pass
     ServerBus.register_rpc("update_email", update_email)
+    server_bus._cfg.on_send = on_send
     await server_bus.inner__accept_net_msg(RpcReq(
         key="update_email:" + RandomUtils.makeid(), kwargs={}))

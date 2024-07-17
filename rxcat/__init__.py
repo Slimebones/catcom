@@ -198,6 +198,12 @@ class CtxManager(Protocol):
     async def __aenter__(self): ...
     async def __aexit__(self, *args): ...
 
+class OnSendFn(Protocol):
+    async def __call__(self, connsids: set[str], rawmsg: dict) -> Any: ...
+
+class OnRecvFn(Protocol):
+    async def __call__(self, connsid: str, wsmsg: Wsmsg) -> Any: ...
+
 class ServerBusCfg(BaseModel):
     register_fn: RegisterFn | None = None
     """
@@ -216,8 +222,8 @@ class ServerBusCfg(BaseModel):
     subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[RpcReq], Awaitable[CtxManager]] | None = None
 
-    on_send: Callable[[set[str], dict], Awaitable[None]] | None = None
-    on_recv: Callable[[str, Wsmsg], Awaitable[None]] | None = None
+    on_send: OnSendFn | None = None
+    on_recv: OnRecvFn | None = None
 
     msg_queue_max_size: int = 10000
     are_errs_catchlogged: bool = False
