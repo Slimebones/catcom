@@ -16,14 +16,8 @@ from asyncio import Task
 from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Coroutine,
-    Protocol,
-    TypeVar,
-    runtime_checkable,
-)
+from typing import (TYPE_CHECKING, Any, Coroutine, Protocol, TypeVar,
+                    runtime_checkable)
 
 from aiohttp import WSMessage
 from aiohttp.web import WebSocketResponse as Websocket
@@ -38,7 +32,8 @@ from pykit.res import Res, eject
 from pykit.singleton import Singleton
 from result import Err, Ok, UnwrapError
 
-from rxcat._msg import ErrEvt, Evt, InitdClientEvt, Msg, OkEvt, Req, TEvt, TReq
+from rxcat._msg import (ErrEvt, Evt, InitdClientEvt, Msg, OkEvt, Req, TEvt,
+                        TMsg, TReq)
 
 if TYPE_CHECKING:
     from aiohttp.http import WSMessage as Wsmsg
@@ -95,7 +90,6 @@ class internal_BusUnhandledErr(Exception):
             f"bus unhandled err: {err}"
         )
 
-TMsg = TypeVar("TMsg", bound=Msg)
 Subscriber = Callable[[TMsg], Awaitable[Res[TMsg | list[TMsg] | None] | None]]
 
 class PubOpts(BaseModel):

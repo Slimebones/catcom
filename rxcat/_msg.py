@@ -124,6 +124,7 @@ class Evt(Msg):
         self.m_target_connsids = req.get_res_connsids()
         return self
 
+TMsg = TypeVar("TMsg", bound=Msg)
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
 
