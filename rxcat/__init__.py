@@ -10,6 +10,7 @@ every client on connection. For now this is two types of codes:
 """
 
 import asyncio
+import contextlib
 import functools
 import typing
 from asyncio import Task
@@ -214,6 +215,9 @@ class ServerBusCfg(BaseModel):
 
     subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[RpcReq], Awaitable[CtxManager]] | None = None
+
+    on_send: Callable[[set[str], dict], Awaitable[None]] | None = None
+    on_recv: Callable[[str, Wsmsg], Awaitable[None]] | None = None
 
     msg_queue_max_size: int = 10000
     are_errs_catchlogged: bool = False
@@ -515,7 +519,7 @@ class ServerBus(Singleton):
     async def _read_first_wsmsg(self, conn: Websocket) -> Res[str]:
         first_wsmsg = await conn.receive(self._cfg.register_timeout)
         connsid = RandomUtils.makeid()
-        first_msg = await self._try_parse_wsmsg(connsid, first_wsmsg)
+        first_msg = await self.try_parse_wsmsg(connsid, first_wsmsg)
         if not first_msg:
             return Err(ValueErr("failed to parse first msg from"))
         if not isinstance(first_msg, RegisterReq):
@@ -543,7 +547,10 @@ class ServerBus(Singleton):
     async def _process_net_inp_queue(self) -> None:
         while True:
             connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
-            msg = await self._try_parse_wsmsg(connsid, wsmsg)
+            if self._cfg.on_recv:
+                with contextlib.suppress(Exception):
+                    await self._cfg.on_recv(connsid, wsmsg)
+            msg = await self.try_parse_wsmsg(connsid, wsmsg)
             await self.inner__accept_net_msg(msg)
 
     async def inner__accept_net_msg(self, msg: Msg | None):
@@ -609,7 +616,7 @@ class ServerBus(Singleton):
         evt = RpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
         await self._pub_to_net(type(evt), evt)
 
-    async def _try_parse_wsmsg(  # noqa: PLR0911
+    async def try_parse_wsmsg(
             self, connsid: str, wsmsg: WSMessage) -> Msg | None:
         try:
             rawmsg: dict = wsmsg.json()
@@ -666,6 +673,10 @@ class ServerBus(Singleton):
         while True:
             connsids, rawmsg = \
                 await self._net_out_connsids_and_rawmsg_queue.get()
+
+            if self._cfg.on_send:
+                with contextlib.suppress(Exception):
+                    await self._cfg.on_send(connsids, rawmsg)
 
             log.info(f"send to connsids {connsids}: {rawmsg}", 2)
             coros: list[Coroutine] = [

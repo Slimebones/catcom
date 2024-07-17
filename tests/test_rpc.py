@@ -1,3 +1,4 @@
+import asyncio
 from aiohttp.web import WebSocketResponse as Ws
 from pykit.rand import RandomUtils
 from pykit.res import Err, Ok, Res
@@ -17,4 +18,3 @@ async def test_rpc(server_bus: ServerBus):
     ServerBus.register_rpc("update_email", update_email)
     await server_bus.inner__accept_net_msg(RpcReq(
         key="update_email:" + RandomUtils.makeid(), kwargs={}))
-    assert 0
