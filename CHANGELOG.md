@@ -5,6 +5,8 @@
 - renamed throw_err_evt() -> throw()
 - added ServerBusCfg.are_errs_catchlogged which allows to catch+reraise thrown to the bus errs
 - removed ServerBusCfg.is_invoked_action_unhandled_errs_logged in favor of ServerBusCfg.are_errs_catchlogged
+- ServerBusCfg: renamed register -> register_fn
+- setup ContextVar for subaction subscriber call
 
 # 0.2.3
 

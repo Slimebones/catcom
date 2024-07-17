@@ -20,6 +20,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Coroutine,
+    Generator,
     Protocol,
     Self,
     TypeVar,
@@ -92,31 +93,6 @@ class internal_BusUnhandledErr(Exception):
         super().__init__(
             f"bus unhandled err: {err}"
         )
-
-class ServerBusCfg(BaseModel):
-    register: RegisterProtocol | None = None
-    """
-    Function used to register client.
-
-    Defaults to None. If None, all users are still required to send
-    RegisterReq, but no alternative function will be called.
-    """
-
-    msg_queue_max_size: int = 10000
-    register_timeout: float = 60
-    """
-    How much time a client has to send a register request after they connected.
-
-    If the timeout is reached, the bus disconnects a client.
-    """
-
-    are_errs_catchlogged: bool = False
-    """
-    Whether to catch and reraise thrown to the bus errors.
-    """
-
-    class Config:
-        arbitrary_types_allowed = True
 
 class Msg(BaseModel):
     """
@@ -370,6 +346,32 @@ class ConnData(BaseModel):
         arbitrary_types_allowed = True
 
 _rxcat_ctx = ContextVar("rxcat_ctx", default={})
+
+class ServerBusCfg(BaseModel):
+    register_fn: RegisterProtocol | None = None
+    """
+    Function used to register client.
+
+    Defaults to None. If None, all users are still required to send
+    RegisterReq, but no alternative function will be called.
+    """
+    register_timeout: float = 60
+    """
+    How much time a client has to send a register request after they connected.
+
+    If the timeout is reached, the bus disconnects a client.
+    """
+
+    subaction_ctx_fn: Callable[[Msg], Generator] | None = None
+
+    msg_queue_max_size: int = 10000
+    are_errs_catchlogged: bool = False
+    """
+    Whether to catch and reraise thrown to the bus errors.
+    """
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class ServerBus(Singleton):
     """
@@ -642,8 +644,8 @@ class ServerBus(Singleton):
             return Err(ValueErr(
                 f"first msg should be RegisterReq, got {first_msg}"))
 
-        if self._cfg.register is not None:
-            register_res = await self._cfg.register(
+        if self._cfg.register_fn is not None:
+            register_res = await self._cfg.register_fn(
                 first_msg.tokens, first_msg.data)
             if isinstance(register_res, Err):
                 return register_res
@@ -1005,6 +1007,7 @@ class ServerBus(Singleton):
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
         res = await subaction.subscriber(msg)
+
         if isinstance(res, (Err, Ok)):
             val = eject(res)
             if isinstance(val, Msg):
