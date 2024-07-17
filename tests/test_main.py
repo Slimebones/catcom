@@ -42,7 +42,7 @@ async def test_res_returning(server_bus: ServerBus):
 
     async def on_err_evt(evt: ErrEvt):
         nonlocal is_err_evt_arrived
-        assert type(evt.inner_err) is ValueErr
+        assert type(evt.inner__err) is ValueErr
         assert evt.errmsg == "hello"
         is_err_evt_arrived = True
 

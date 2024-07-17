@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
 from pykit.fcode import FcodeCore, code
 from pykit.log import log
+from pykit.obj import get_fully_qualified_name
 from pykit.pointer import Pointer
 from pykit.rand import RandomUtils
 from pykit.res import Res, eject
@@ -156,7 +157,7 @@ class Msg(BaseModel):
                 is_msid_found = True
                 continue
             # all inner keys are deleted from the final serialization
-            if k.startswith("inner_"):
+            if k.startswith("inner__"):
                 keys_to_del.append(k)
                 continue
             if v is None:
@@ -235,13 +236,14 @@ class ErrEvt(Evt):
     """
     errcodeid: int | None = None
     errmsg: str
+    errtype: str
 
-    inner_err: Exception | None = None
+    inner__err: Exception | None = None
     """
     Err that only exists on the inner bus and won't be serialized.
     """
 
-    isThrownByPubAction: bool | None = None
+    inner__is_thrown_by_pubaction: bool | None = None
     """
     Errs can be thrown by req-listening action or by req+evt listening
     pubaction.
@@ -348,6 +350,7 @@ class ConnData(BaseModel):
 
 _rxcat_ctx = ContextVar("rxcat_ctx", default={})
 
+@runtime_checkable
 class CtxManager(Protocol):
     async def __aenter__(self): ...
     async def __aexit__(self, *args): ...
@@ -522,10 +525,11 @@ class ServerBus(Singleton):
         evt = ErrEvt(
             errcodeid=errcodeid,
             errmsg=errmsg,
-            inner_err=err,
+            errtype=get_fully_qualified_name(err),
+            inner__err=err,
             rsid=rsid,
             m_target_connsids=final_to_connsids,
-            isThrownByPubAction=is_thrown_by_pubaction
+            inner__is_thrown_by_pubaction=is_thrown_by_pubaction
         )
 
         if errcodeid is None:
@@ -844,7 +848,7 @@ class ServerBus(Singleton):
             isinstance(pointer.target, ErrEvt)
             and not opts.pubr_must_ignore_err_evt
         ):
-            final_err = pointer.target.inner_err
+            final_err = pointer.target.inner__err
             if not final_err:
                 log.warn(
                     f"on pubr got err evt {pointer.target} without"
@@ -949,7 +953,7 @@ class ServerBus(Singleton):
             None
         )
 
-        if isinstance(evt, ErrEvt) and evt.isThrownByPubAction:
+        if isinstance(evt, ErrEvt) and evt.inner__is_thrown_by_pubaction:
             # skip pubaction errs to avoid infinite msg loop
             return
 
@@ -994,17 +998,6 @@ class ServerBus(Singleton):
 
         if msg.m_connsid:
             ctx_dict["connsid"] = msg.m_connsid
-        if isinstance(msg, ErrEvt):
-            if msg.errcodeid is not None:
-                errcode_res = self.get_errcode_for_errcodeid(msg.errcodeid)
-                if isinstance(errcode_res, Ok):
-                    ctx_dict["errcode"] = errcode_res.ok
-        else:
-            mcode = self.try_get_mcode_for_mtype(type(msg))
-            if mcode is not None:
-                ctx_dict["mcode"] = mcode
-
-        ctx_dict["msg"] = msg.model_dump()
 
         return ctx_dict
 
