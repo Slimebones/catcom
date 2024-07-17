@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncGenerator,
     Coroutine,
     Generator,
     Protocol,
@@ -347,6 +348,10 @@ class ConnData(BaseModel):
 
 _rxcat_ctx = ContextVar("rxcat_ctx", default={})
 
+class CtxManager(Protocol):
+    async def __aenter__(self): ...
+    async def __aexit__(self, *args): ...
+
 class ServerBusCfg(BaseModel):
     register_fn: RegisterProtocol | None = None
     """
@@ -362,7 +367,7 @@ class ServerBusCfg(BaseModel):
     If the timeout is reached, the bus disconnects a client.
     """
 
-    subaction_ctx_fn: Callable[[Msg], Generator] | None = None
+    subaction_ctx_fn: Callable[[Msg], Awaitable[CtxManager]] | None = None
 
     msg_queue_max_size: int = 10000
     are_errs_catchlogged: bool = False
@@ -1006,7 +1011,12 @@ class ServerBus(Singleton):
     async def _call_subaction(self, subaction: _SubAction, msg: Msg):
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
-        res = await subaction.subscriber(msg)
+        if self._cfg.subaction_ctx_fn is not None:
+            ctx_manager = await self._cfg.subaction_ctx_fn(msg)
+            async with ctx_manager:
+                res = await subaction.subscriber(msg)
+        else:
+            res = await subaction.subscriber(msg)
 
         if isinstance(res, (Err, Ok)):
             val = eject(res)

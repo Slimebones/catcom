@@ -7,6 +7,7 @@
 - removed ServerBusCfg.is_invoked_action_unhandled_errs_logged in favor of ServerBusCfg.are_errs_catchlogged
 - ServerBusCfg: renamed register -> register_fn
 - setup ContextVar for subaction subscriber call
+- added support for custom subaction context functions
 
 # 0.2.3
 
