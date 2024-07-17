@@ -9,6 +9,7 @@
 - setup ContextVar for subaction subscriber call
 - added support for custom subaction context functions
 - added ErrEvt.errtype which is set to fully qualified string representation of an error type
+- added SEND/RECV callbacks defined as cfg.on_send and cfg.on_recv
 
 # 0.2.3
 
