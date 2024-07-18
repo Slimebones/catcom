@@ -1,13 +1,25 @@
+from typing import Self
+
+from aiohttp import WSMsgType
 from rxcat._transport import Conn, ConnArgs, Transport
 from aiohttp.web import WebSocketResponse as AiohttpWebsocket
-from aiohttp.http import WSMessage as WsMsg
 
-class Ws(Conn[AiohttpWebsocket, WsMsg]):
+class Ws(Conn[AiohttpWebsocket]):
     def __init__(self, args: ConnArgs[AiohttpWebsocket]) -> None:
         super().__init__(args)
 
-    async def receive(self) -> WsMsg:
-        return await self._core.receive()
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> dict:
+        connmsg = await self._core.receive()
+        if connmsg.type in (
+                WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+            raise StopAsyncIteration
+        return connmsg.json()
+
+    async def receive_json(self) -> dict:
+        return await self._core.receive_json()
 
     async def send_bytes(self, data: bytes):
         return await self._core.send_bytes(data)

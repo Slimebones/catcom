@@ -13,7 +13,7 @@ import asyncio
 import contextlib
 import functools
 import typing
-from asyncio import Task
+from asyncio import Queue, Task
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from inspect import isclass
@@ -49,7 +49,8 @@ from rxcat._msg import (
     TReq,
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
-from rxcat._transport import Transport, Conn, ConnArgs, OnRecvFn, OnSendFn
+from rxcat._transport import \
+    Transport, Conn, ConnArgs, OnRecvFn, OnSendFn, ActiveTransport
 from rxcat._ws import Ws
 from rxcat._udp import Udp
 
@@ -220,12 +221,6 @@ class ServerBusCfg(BaseModel):
     Defaults to None. If None, all users are still required to send
     RegisterReq, but no alternative function will be called.
     """
-    register_timeout: float = 60
-    """
-    How much time a client has to send a register request after they connected.
-
-    If the timeout is reached, the bus disconnects a client.
-    """
 
     subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[RpcReq], Awaitable[CtxManager]] | None = None
@@ -290,20 +285,8 @@ class ServerBus(Singleton):
             dict[type[Msg], list[_SubAction]] = {}
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
-        self._net_inp_queue_processor: Task | None = None
-        self._net_out_queue_processor: Task | None = None
-
         self._preserialized_initd_client_evt: dict = {}
         self._initd_client_evt_mcodeid: int | None = None
-
-        if not self._net_inp_queue_processor:
-            self._net_inp_queue_processor = asyncio.create_task(
-                self._process_net_inp_queue()
-            )
-        if not self._net_out_queue_processor:
-            self._net_out_queue_processor = asyncio.create_task(
-                self._process_net_out_queue()
-            )
 
         self._rsid_to_req_and_pubaction: dict[str, tuple[Req, PubAction]] = {}
         self._rsids_to_del_on_next_pubaction: set[str] = set()
@@ -314,7 +297,7 @@ class ServerBus(Singleton):
         self._rpc_tasks: set[asyncio.Task] = set()
 
     def _init_transports(self):
-        self._conn_type_to_transport: dict[type[Conn], Transport] = {}
+        self._conn_type_to_transport: dict[type[Conn], ActiveTransport] = {}
         transports = self._cfg.transports
         if not self._cfg.transports:
             transports = [self.DEFAULT_TRANSPORT]
@@ -329,14 +312,24 @@ class ServerBus(Singleton):
                     f"only server transports are accepted, got {transport}"
                     " => skip")
                 continue
-            self._conn_type_to_transport[transport.conn_type] = transport
+
+            inp_task = asyncio.create_task(self._process_inp_queue())
+            out_task = asyncio.create_task(self._process_net_out_queue())
+            self._conn_type_to_transport[transport.conn_type] = \
+                ActiveTransport(
+                    transport=transport,
+                    inp_queue=Queue(transport.max_inp_queue_size),
+                    out_queue=Queue(transport.max_out_queue_size),
+                    inp_queue_processor=inp_task,
+                    out_queue_processor=out_task)
+
 
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn:
             return Err(NotFoundErr(f"conn with sid {sid}"))
-        conn = self._sid_to_conn[sid].conn
+        conn = self._sid_to_conn[sid]
         del self._sid_to_conn[sid]
-        if not conn.closed:
+        if not conn.is_closed:
             await conn.close()
         return Ok(None)
 
@@ -533,57 +526,82 @@ class ServerBus(Singleton):
 
         ServerBus.try_discard()
 
-    async def conn(self, conn: Websocket) -> None:
+    async def conn(self, conn: Conn):
         if not self._is_post_initd:
             await self.postinit()
+
+        transport = self._conn_type_to_transport.get(type(conn), None)
+        if transport is None:
+            log.err(
+                f"cannot find registered transport for conn {conn}"
+                " => close conn")
+            with contextlib.suppress(Exception):
+                await conn.close()
+        transport = typing.cast(Transport, transport)
 
         log.info(f"accept new conn {conn}", 2)
 
         try:
-            connsid = eject(await self._read_first_wsmsg(conn))
+            eject(await self._read_first_msg(conn, transport))
             await conn.send_json(self._preserialized_initd_client_evt)
-            await self._read_ws(connsid, conn)
+            await self._read_ws(conn)
         finally:
-            if not conn.closed:
-                await conn.close()
+            if not conn.is_closed:
+                try:
+                    await conn.close()
+                except Exception as err:
+                    log.err(
+                        f"err {get_fully_qualified_name(err)} is raised"
+                        f" during conn {conn} closing, #stacktrace")
+                    log.catch(err)
             if connsid in self._sid_to_conn:
                 del self._sid_to_conn[connsid]
 
-    async def _read_first_wsmsg(self, conn: Websocket) -> Res[str]:
-        first_wsmsg = await conn.receive(self._cfg.register_timeout)
-        connsid = RandomUtils.makeid()
-        first_msg = await self.try_parse_wsmsg(connsid, first_wsmsg)
-        if not first_msg:
+    async def _receive_from_conn(
+            self,
+            conn: Conn,
+            transport: Transport) -> dict:
+        try:
+            return await asyncio.wait_for(
+                conn.receive_json(),
+                transport.inactivity_timeout)
+        except TimeoutError as err:
+            raise TimeoutError(
+                f"inactivity of conn {conn} for transport {transport}"
+            ) from err
+
+    async def _read_first_msg(
+            self, conn: Conn, transport: Transport) -> Res[str]:
+        rmsg = await self._receive_from_conn(conn, transport)
+        msg = await self.parse_rmsg(rmsg, conn)
+        if not msg:
             return Err(ValueErr("failed to parse first msg from"))
-        if not isinstance(first_msg, RegisterReq):
+        if not isinstance(msg, RegisterReq):
             return Err(ValueErr(
-                f"first msg should be RegisterReq, got {first_msg}"))
+                f"first msg should be RegisterReq, got {msg}"))
 
         if self._cfg.register_fn is not None:
             register_res = await self._cfg.register_fn(
-                first_msg.tokens, first_msg.data)
+                msg.tokens, msg.data)
             if isinstance(register_res, Err):
                 return register_res
 
         # assign connsid only after receiving correct register req and
         # approving of it by the resource server
-        self._sid_to_conn[connsid] = ConnData(
-            conn=conn, tokens=first_msg.tokens)
+        self._sid_to_conn[conn.sid] = conn
 
-        return Ok(connsid)
+    async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
+        async for rmsg in conn:
+            log.info(f"receive: {rmsg}", 2)
+            atransport.inp_queue.put_nowait((conn.sid, rmsg))
 
-    async def _read_ws(self, connsid: str, conn: Websocket):
-        async for wsmsg in conn:
-            log.info(f"receive: {wsmsg}", 2)
-            self._net_inp_connsid_and_wsmsg_queue.put_nowait((connsid, wsmsg))
-
-    async def _process_net_inp_queue(self) -> None:
+    async def _process_inp_queue(self, atransport: ActiveTransport):
         while True:
-            connsid, wsmsg = await self._net_inp_connsid_and_wsmsg_queue.get()
-            if self._cfg.on_recv:
+            connsid, rmsg = await atransport.inp_queue.get()
+            if atransport.transport.on_recv:
                 with contextlib.suppress(Exception):
-                    await self._cfg.on_recv(connsid, wsmsg)
-            msg = await self.try_parse_wsmsg(connsid, wsmsg)
+                    await atransport.transport.on_recv(connsid, rmsg)
+            msg = await self.parse_rmsg(connsid, rmsg)
             await self.inner__accept_net_msg(msg)
 
     async def inner__accept_net_msg(self, msg: Msg | None):
@@ -650,15 +668,10 @@ class ServerBus(Singleton):
         evt = RpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
         await self._pub_to_net(type(evt), evt)
 
-    async def try_parse_wsmsg(
-            self, connsid: str, wsmsg: WSMessage) -> Msg | None:
-        try:
-            rawmsg: dict = wsmsg.json()
-        except Exception:
-            log.err(f"unable to parse ws msg {wsmsg}")
-            return None
+    async def parse_rmsg(
+            self, rmsg: dict, conn: Conn) -> Msg | None:
 
-        msid: str | None = rawmsg.get("msid", None)
+        msid: str | None = rmsg.get("msid", None)
         if not msid:
             log.err("msg without msid => skip silently")
             return None
@@ -666,11 +679,11 @@ class ServerBus(Singleton):
         # for future rsid navigation
         # rsid: str | None = raw_msg.get("rsid", None)
 
-        mcodeid: int | None = rawmsg.get("mcodeid", None)
+        mcodeid: int | None = rmsg.get("mcodeid", None)
         if mcodeid is None:
             await self.throw(
                 ValueError(
-                    f"got msg {rawmsg} with undefined mcodeid"
+                    f"got msg {rmsg} with undefined mcodeid"
                 )
             )
             return None
@@ -694,9 +707,9 @@ class ServerBus(Singleton):
         assert t is not None, "if mcodeid found, mtype must be found"
 
         t = typing.cast(type[Msg], t)
-        rawmsg["m_connsid"] = connsid
+        rmsg["m_connsid"] = conn.sid
         try:
-            msg = t.deserialize_json(rawmsg)
+            msg = t.deserialize_json(rmsg)
         except Exception as err:
             log.err_or_catch(err, 2)
             return None

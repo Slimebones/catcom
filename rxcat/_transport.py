@@ -8,30 +8,32 @@ For a server general guideline would be to setup external connection manager,
 and pass new established connections to ServerBus.conn method, where
 connection processing further relies on ServerBus.
 """
-from asyncio import Queue
-from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
+from asyncio import Queue, Task
+from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 from pykit.rand import RandomUtils
 
-TCore = TypeVar("TCore")
-TConnMsg = TypeVar("TConnMsg")
+TConnCore = TypeVar("TConnCore")
 
+# we pass connsid to OnSend and OnRecv functions instead of Conn to
+# not allow these methods to operate on connection, but instead request
+# required information about it via the bus
 @runtime_checkable
 class OnSendFn(Protocol):
-    async def __call__(self, connsids: set[str], rawmsg: dict): ...
+    async def __call__(self, connsids: set[str], rmsg: dict): ...
 
 # generic Protocol[TConnMsg] is not used due to variance issues
 @runtime_checkable
 class OnRecvFn(Protocol):
-    async def __call__(self, connsid: str, connmsg: Any): ...
+    async def __call__(self, connsid: str, rmsg: dict): ...
 
-class ConnArgs(BaseModel, Generic[TCore]):
-    core: TCore
+class ConnArgs(BaseModel, Generic[TConnCore]):
+    core: TConnCore
     tokens: set[str] | None = None
 
-class Conn(Generic[TCore, TConnMsg]):
-    def __init__(self, args: ConnArgs[TCore]) -> None:
+class Conn(Generic[TConnCore]):
+    def __init__(self, args: ConnArgs[TConnCore]) -> None:
         self._sid = RandomUtils.makeid()
         self._core = args.core
         self._is_closed = False
@@ -52,7 +54,13 @@ class Conn(Generic[TCore, TConnMsg]):
     def is_closed(self) -> bool:
         return self._is_closed
 
-    async def receive(self) -> TConnMsg:
+    def __aiter__(self) -> Self:
+        raise NotImplementedError
+
+    async def __anext__(self) -> dict:
+        raise NotImplementedError
+
+    async def receive_json(self) -> dict:
         raise NotImplementedError
 
     async def send_str(self, data: str):
@@ -69,7 +77,7 @@ class Conn(Generic[TCore, TConnMsg]):
 
 class Transport(BaseModel):
     is_server: bool
-    conn_type: type[Conn[Any, Any]]
+    conn_type: type[Conn]
 
     protocol: str
     host: str
@@ -77,7 +85,13 @@ class Transport(BaseModel):
     route: str
 
     max_inp_queue_size: int = 10000
+    """
+    If less or equal than zero, no limitation is applied.
+    """
     max_out_queue_size: int = 10000
+    """
+    If less or equal than zero, no limitation is applied.
+    """
 
     inactivity_timeout: float | None = None
     """
@@ -112,5 +126,7 @@ class Transport(BaseModel):
 
 class ActiveTransport(BaseModel):
     transport: Transport
-    inp_queue: Queue
-    out_queue: Queue
+    inp_queue: Queue[tuple[str, dict]]
+    out_queue: Queue[tuple[set[str], dict]]
+    inp_queue_processor: Task
+    out_queue_processor: Task
