@@ -52,9 +52,7 @@ from rxcat._msg import (
     TReq,
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
-
-if TYPE_CHECKING:
-    from aiohttp.http import WSMessage as Wsmsg
+from aiohttp.http import WSMessage as Wsmsg
 
 __all__ = [
     "ServerBus",
@@ -198,9 +196,11 @@ class CtxManager(Protocol):
     async def __aenter__(self): ...
     async def __aexit__(self, *args): ...
 
+@runtime_checkable
 class OnSendFn(Protocol):
     async def __call__(self, connsids: set[str], rawmsg: dict) -> Any: ...
 
+@runtime_checkable
 class OnRecvFn(Protocol):
     async def __call__(self, connsid: str, wsmsg: Wsmsg) -> Any: ...
 
@@ -609,6 +609,7 @@ class ServerBus(Singleton):
                 f" exception {get_fully_qualified_name(err)}")
             log.catch(err)
             res = Err(err)
+
         val: Any
         if isinstance(res, Ok):
             val = res.ok_value
