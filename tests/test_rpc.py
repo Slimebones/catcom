@@ -3,8 +3,10 @@ import asyncio
 from pykit.rand import RandomUtils
 from pykit.res import Res
 from result import Err, Ok
-from rxcat import ServerBus, ServerBusCfg, Transport, Conn, ConnArgs, RpcReq
+
+from rxcat import ConnArgs, ServerBus, ServerBusCfg, Transport
 from tests.conftest import MockConn
+
 
 async def test_rpc():
     async def update_email(data: dict) -> Res[int]:

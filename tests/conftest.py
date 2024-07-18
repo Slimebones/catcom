@@ -1,9 +1,10 @@
 from asyncio import Queue
 from typing import Self
+
 import pytest_asyncio
 from pykit.fcode import FcodeCore
 
-from rxcat import ServerBus, Conn, ConnArgs
+from rxcat import Conn, ConnArgs, ServerBus
 
 
 @pytest_asyncio.fixture(autouse=True)

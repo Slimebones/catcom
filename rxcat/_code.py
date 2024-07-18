@@ -1,8 +1,10 @@
 from typing import ClassVar
+
 from pykit.err import NotFoundErr
 from pykit.fcode import FcodeCore
 from pykit.res import Res
 from result import Err, Ok
+
 from rxcat._msg import Msg
 
 
@@ -12,21 +14,21 @@ class CodeStorage:
     """
     # active and legacy codes are bundled together under the same id, so
     # we use dict here
-    _MCODE_TO_MCODEID: ClassVar[dict[str, int]] = {}
-    _ERRCODE_TO_ERRCODEID: ClassVar[dict[str, int]] = {}
+    mcode_to_mcodeid: ClassVar[dict[str, int]] = {}
+    errcode_to_errcodeid: ClassVar[dict[str, int]] = {}
 
-    _INDEXED_ACTIVE_MCODES: ClassVar[list[str]] = []
-    _INDEXED_ACTIVE_ERRCODES: ClassVar[list[str]] = []
+    indexed_active_mcodes: ClassVar[list[str]] = []
+    indexed_active_errcodes: ClassVar[list[str]] = []
 
-    INDEXED_MCODES: ClassVar[list[list[str]]] = []
-    INDEXED_ERRCODES: ClassVar[list[list[str]]] = []
-    FALLBACK_ERRCODEID: ClassVar[int]
+    indexed_mcodes: ClassVar[list[list[str]]] = []
+    indexed_errcodes: ClassVar[list[list[str]]] = []
+    fallback_errcodeid: ClassVar[int]
 
     @classmethod
     def update(cls):
         cls._update_mcodes()
         cls._update_errcodes()
-        cls.FALLBACK_ERRCODEID = cls._ERRCODE_TO_ERRCODEID[
+        cls.fallback_errcodeid = cls.errcode_to_errcodeid[
             "rxcat_fallback_err"]
 
     @classmethod
@@ -44,40 +46,40 @@ class CodeStorage:
         collections[0], collections[register_req_start_index] = \
             collections[register_req_start_index], collections[0]
 
-        cls.INDEXED_MCODES = collections
+        cls.indexed_mcodes = collections
         for id, mcodes in enumerate(collections):
-            cls._INDEXED_ACTIVE_MCODES.append(mcodes[0])
+            cls.indexed_active_mcodes.append(mcodes[0])
             for mcode in mcodes:
-                cls._MCODE_TO_MCODEID[mcode] = id
+                cls.mcode_to_mcodeid[mcode] = id
 
     @classmethod
     def _update_errcodes(cls):
         collections = FcodeCore.try_get_all_codes(Exception)
         assert collections, "must have at least one errcode defined"
-        cls.INDEXED_ERRCODES = collections
+        cls.indexed_errcodes = collections
 
         for id, errcodes in enumerate(collections):
-            cls._INDEXED_ACTIVE_ERRCODES.append(errcodes[0])
+            cls.indexed_active_errcodes.append(errcodes[0])
             for errcode in errcodes:
-                cls._ERRCODE_TO_ERRCODEID[errcode] = id
+                cls.errcode_to_errcodeid[errcode] = id
 
     @classmethod
     def try_get_mcodeid_for_mcode(cls, mcode: str) -> int | None:
-        res = cls._MCODE_TO_MCODEID.get(mcode, -1)
+        res = cls.mcode_to_mcodeid.get(mcode, -1)
         if res == -1:
             return None
         return res
 
     @classmethod
     def try_get_errcodeid_for_errcode(cls, errcode: str) -> int | None:
-        res = cls._ERRCODE_TO_ERRCODEID.get(errcode, -1)
+        res = cls.errcode_to_errcodeid.get(errcode, -1)
         if res == -1:
             return None
         return res
 
     @classmethod
     def get_errcode_for_errcodeid(cls, errcodeid: int) -> Res[str]:
-        for k, v in cls._ERRCODE_TO_ERRCODEID.items():
+        for k, v in cls.errcode_to_errcodeid.items():
             if v == errcodeid:
                 return Ok(k)
         return Err(NotFoundErr(f"errcode for errcodeid {errcodeid}"))
@@ -87,7 +89,7 @@ class CodeStorage:
         mcode: str | None = \
             FcodeCore.try_get_active_code_for_type(mtype)
         if mcode:
-            mcodeid: int = cls._MCODE_TO_MCODEID.get(mcode, -1)
+            mcodeid: int = cls.mcode_to_mcodeid.get(mcode, -1)
             assert mcodeid != -1, "must find mcodeid for mcode"
             return mcodeid
         return None
@@ -98,7 +100,7 @@ class CodeStorage:
 
     @classmethod
     def try_get_mcode_for_mcodeid(cls, mcodeid: int) -> str | None:
-        for k, v in cls._MCODE_TO_MCODEID.items():
+        for k, v in cls.mcode_to_mcodeid.items():
             if v == mcodeid:
                 return k
         return None
@@ -110,7 +112,7 @@ class CodeStorage:
         errcode: str | None = \
             FcodeCore.try_get_active_code_for_type(errtype)
         if errcode:
-            errcodeid: int = cls._ERRCODE_TO_ERRCODEID.get(errcode, -1)
+            errcodeid: int = cls.errcode_to_errcodeid.get(errcode, -1)
             assert errcodeid != -1, "must find mcodeid for mcode"
             return errcodeid
         return None

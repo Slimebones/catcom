@@ -36,6 +36,8 @@ from pykit.res import Res, eject
 from pykit.singleton import Singleton
 from result import Err, Ok, UnwrapError
 
+from rxcat._code import CodeStorage
+from rxcat._err import ErrDto
 from rxcat._msg import (
     ErrEvt,
     Evt,
@@ -58,8 +60,6 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
-from rxcat._err import ErrDto
-from rxcat._code import CodeStorage
 
 __all__ = [
     "ServerBus",
@@ -418,7 +418,8 @@ class ServerBus(Singleton):
             final_to_connsids = [triggered_msg.m_connsid]
 
         evt = ErrEvt(
-            err=ErrDto.create(err),
+            err=ErrDto.create(
+                err, CodeStorage.try_get_errcodeid_for_errtype(type(err))),
             inner__err=err,
             rsid=rsid,
             m_target_connsids=final_to_connsids,
@@ -445,8 +446,8 @@ class ServerBus(Singleton):
 
         if not self._preserialized_initd_client_evt:
             self._preserialized_initd_client_evt = InitdClientEvt(
-                indexedMcodes=CodeStorage.INDEXED_MCODES,
-                indexedErrcodes=CodeStorage.INDEXED_ERRCODES,
+                indexedMcodes=CodeStorage.indexed_mcodes,
+                indexedErrcodes=CodeStorage.indexed_errcodes,
                 rsid=None
             ).serialize_json(self._initd_client_evt_mcodeid)
         self._is_post_initd = True
@@ -481,7 +482,7 @@ class ServerBus(Singleton):
         atransport = typing.cast(ActiveTransport, atransport)
 
         if conn.sid in self._sid_to_conn:
-            log.err(f"conn with such sid already active => skip")
+            log.err("conn with such sid already active => skip")
             return
 
         log.info(f"accept new conn {conn}", 2)
@@ -661,7 +662,7 @@ class ServerBus(Singleton):
                 )
             )
             return None
-        if mcodeid > len(CodeStorage._INDEXED_ACTIVE_MCODES) - 1:
+        if mcodeid > len(CodeStorage.indexed_active_mcodes) - 1:
             await self.throw(ValueError(
                 f"unrecognized mcodeid {mcodeid}"
             ))
@@ -669,7 +670,7 @@ class ServerBus(Singleton):
 
         t: type[Msg] | None = \
             FcodeCore.try_get_type_for_any_code(
-                CodeStorage._INDEXED_ACTIVE_MCODES[mcodeid])
+                CodeStorage.indexed_active_mcodes[mcodeid])
         assert t is not None, "if mcodeid found, mtype must be found"
 
         t = typing.cast(type[Msg], t)
