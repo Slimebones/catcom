@@ -601,7 +601,7 @@ class ServerBus(Singleton):
             if atransport.transport.on_recv:
                 with contextlib.suppress(Exception):
                     await atransport.transport.on_recv(connsid, rmsg)
-            msg = await self.parse_rmsg(connsid, rmsg)
+            msg = await self.parse_rmsg(rmsg)
             await self.inner__accept_net_msg(msg)
 
     async def inner__accept_net_msg(self, msg: Msg | None):
