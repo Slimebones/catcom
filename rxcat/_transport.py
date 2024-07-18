@@ -8,25 +8,38 @@ For a server general guideline would be to setup external connection manager,
 and pass new established connections to ServerBus.conn method, where
 connection processing further relies on ServerBus.
 """
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel
+from pykit.rand import RandomUtils
 
+TCore = TypeVar("TCore")
 
-class Conn:
+class ConnArgs(BaseModel, Generic[TCore]):
+    core: TCore
+    tokens: set[str] | None = None
+
+class Conn(Generic[TCore]):
+    def __init__(self, args: ConnArgs[TCore]) -> None:
+        self._sid = RandomUtils.makeid()
+        self._core = args.core
+        self._is_closed = False
+
+        self._tokens: set[str] = set()
+        if args.tokens:
+            self._tokens = args.tokens.copy()
+
     @property
     def sid(self) -> str:
-        raise NotImplementedError
+        return self._sid
 
     @property
-    def tokens(self) -> list[str]:
-        raise NotImplementedError
-
-    @property
-    def transport(self) -> "Transport":
-        raise NotImplementedError
+    def tokens(self) -> set[str]:
+        return self._tokens.copy()
 
     @property
     def is_closed(self) -> bool:
-        raise NotImplementedError
+        return self._is_closed
 
     async def send_str(self, data: str):
         raise NotImplementedError

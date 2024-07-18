@@ -52,6 +52,9 @@ from rxcat._msg import (
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
 from aiohttp.http import WSMessage as Wsmsg
+from rxcat._transport import Transport, Conn, ConnArgs
+from rxcat._ws import Ws
+from rxcat._udp import Udp
 
 __all__ = [
     "ServerBus",
@@ -68,7 +71,13 @@ __all__ = [
     "RpcReq",
     "RpcEvt",
     "RpcFn",
-    "server_rpc"
+    "server_rpc",
+
+    "Conn",
+    "ConnArgs",
+    "Transport",
+    "Ws",
+    "Udp"
 ]
 
 # placed here and not at _rpc.py to avoid circulars
@@ -204,6 +213,22 @@ class OnRecvFn(Protocol):
     async def __call__(self, connsid: str, wsmsg: Wsmsg) -> Any: ...
 
 class ServerBusCfg(BaseModel):
+    transports: list[Transport] | None = None
+    """
+    List of available transport mechanisms.
+
+    For each transport the server bus will be able to accept incoming
+    connections and treat them the same.
+
+    "None" enables only default Websocket transport.
+
+    The transports should be managed externally, and established connections
+    are passed to ServerBus.conn, with ownership transfer.
+
+    If ServerBus.conn receive connection not listed in this list, an error
+    will be returned.
+    """
+
     register_fn: RegisterFn | None = None
     """
     Function used to register client.
@@ -224,7 +249,6 @@ class ServerBusCfg(BaseModel):
     on_send: OnSendFn | None = None
     on_recv: OnRecvFn | None = None
 
-    msg_queue_max_size: int = 10000
     are_errs_catchlogged: bool = False
     """
     Whether to catch and reraise thrown to the bus errors.
