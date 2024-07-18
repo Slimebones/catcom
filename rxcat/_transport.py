@@ -32,6 +32,9 @@ class ConnArgs(BaseModel, Generic[TConnCore]):
     core: TConnCore
     tokens: set[str] | None = None
 
+    class Config:
+        arbitrary_types_allowed = True
+
 class Conn(Generic[TConnCore]):
     def __init__(self, args: ConnArgs[TConnCore]) -> None:
         self._sid = RandomUtils.makeid()
@@ -113,6 +116,9 @@ class Transport(BaseModel):
     on_send: OnSendFn | None = None
     on_recv: OnRecvFn | None = None
 
+    class Config:
+        arbitrary_types_allowed = True
+
     @property
     def url(self) -> str:
         return \
@@ -130,3 +136,6 @@ class ActiveTransport(BaseModel):
     out_queue: Queue[tuple[Conn, dict]]
     inp_queue_processor: Task
     out_queue_processor: Task
+
+    class Config:
+        arbitrary_types_allowed = True
