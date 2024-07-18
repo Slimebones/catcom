@@ -8,18 +8,29 @@ For a server general guideline would be to setup external connection manager,
 and pass new established connections to ServerBus.conn method, where
 connection processing further relies on ServerBus.
 """
-from typing import Generic, TypeVar
+from asyncio import Queue
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 from pykit.rand import RandomUtils
 
 TCore = TypeVar("TCore")
+TConnMsg = TypeVar("TConnMsg")
+
+@runtime_checkable
+class OnSendFn(Protocol):
+    async def __call__(self, connsids: set[str], rawmsg: dict): ...
+
+# generic Protocol[TConnMsg] is not used due to variance issues
+@runtime_checkable
+class OnRecvFn(Protocol):
+    async def __call__(self, connsid: str, connmsg: Any): ...
 
 class ConnArgs(BaseModel, Generic[TCore]):
     core: TCore
     tokens: set[str] | None = None
 
-class Conn(Generic[TCore]):
+class Conn(Generic[TCore, TConnMsg]):
     def __init__(self, args: ConnArgs[TCore]) -> None:
         self._sid = RandomUtils.makeid()
         self._core = args.core
@@ -41,6 +52,9 @@ class Conn(Generic[TCore]):
     def is_closed(self) -> bool:
         return self._is_closed
 
+    async def receive(self) -> TConnMsg:
+        raise NotImplementedError
+
     async def send_str(self, data: str):
         raise NotImplementedError
 
@@ -55,7 +69,12 @@ class Conn(Generic[TCore]):
 
 class Transport(BaseModel):
     is_server: bool
-    conn_type: Conn
+    conn_type: type[Conn[Any, Any]]
+
+    protocol: str
+    host: str
+    port: int
+    route: str
 
     max_inp_queue_size: int = 10000
     max_out_queue_size: int = 10000
@@ -77,10 +96,8 @@ class Transport(BaseModel):
     by the transport.
     """
 
-    protocol: str
-    host: str
-    port: int
-    route: str
+    on_send: OnSendFn | None = None
+    on_recv: OnRecvFn | None = None
 
     @property
     def url(self) -> str:
@@ -92,3 +109,8 @@ class Transport(BaseModel):
             + str(self.port) \
             + "/" \
             + self.route
+
+class ActiveTransport(BaseModel):
+    transport: Transport
+    inp_queue: Queue
+    out_queue: Queue

@@ -14,7 +14,6 @@ import contextlib
 import functools
 import typing
 from asyncio import Task
-from asyncio.queues import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from inspect import isclass
@@ -27,7 +26,6 @@ from typing import (
 )
 
 from aiohttp import WSMessage
-from aiohttp.web import WebSocketResponse as Websocket
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
 from pykit.fcode import FcodeCore, code
@@ -51,8 +49,7 @@ from rxcat._msg import (
     TReq,
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
-from aiohttp.http import WSMessage as Wsmsg
-from rxcat._transport import Transport, Conn, ConnArgs
+from rxcat._transport import Transport, Conn, ConnArgs, OnRecvFn, OnSendFn
 from rxcat._ws import Ws
 from rxcat._udp import Udp
 
@@ -77,7 +74,9 @@ __all__ = [
     "ConnArgs",
     "Transport",
     "Ws",
-    "Udp"
+    "Udp",
+    "OnSendFn",
+    "OnRecvFn"
 ]
 
 # placed here and not at _rpc.py to avoid circulars
@@ -189,13 +188,6 @@ class _SubAction(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-class ConnData(BaseModel):
-    conn: Websocket
-    tokens: list[str]
-
-    class Config:
-        arbitrary_types_allowed = True
-
 _rxcat_ctx = ContextVar("rxcat_ctx", default={})
 PubAction = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
 
@@ -203,14 +195,6 @@ PubAction = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
 class CtxManager(Protocol):
     async def __aenter__(self): ...
     async def __aexit__(self, *args): ...
-
-@runtime_checkable
-class OnSendFn(Protocol):
-    async def __call__(self, connsids: set[str], rawmsg: dict) -> Any: ...
-
-@runtime_checkable
-class OnRecvFn(Protocol):
-    async def __call__(self, connsid: str, wsmsg: Wsmsg) -> Any: ...
 
 class ServerBusCfg(BaseModel):
     transports: list[Transport] | None = None
@@ -246,9 +230,6 @@ class ServerBusCfg(BaseModel):
     subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[RpcReq], Awaitable[CtxManager]] | None = None
 
-    on_send: OnSendFn | None = None
-    on_recv: OnRecvFn | None = None
-
     are_errs_catchlogged: bool = False
     """
     Whether to catch and reraise thrown to the bus errors.
@@ -262,12 +243,24 @@ class ServerBus(Singleton):
     Rxcat server bus implementation.
     """
     _code_to_rpcfn: ClassVar[dict[str, RpcFn]] = {}
+    DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
+        is_server=True,
+        conn_type=Ws,
+        max_inp_queue_size=10000,
+        max_out_queue_size=10000,
+        protocol="ws",
+        host="localhost",
+        port=3000,
+        route="rx"
+    )
 
     def __init__(self):
         self._is_initd = False
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
         self._cfg = cfg
+
+        self._init_transports()
 
         FcodeCore.defcode("rxcat_fallback_err", Exception)
         # only server is able to index mcodes, client is not able to send
@@ -289,20 +282,13 @@ class ServerBus(Singleton):
         self._fallback_errcodeid: int = \
             self._ERRCODE_TO_ERRCODEID["rxcat_fallback_err"]
 
-        self._sid_to_conn_data: dict[str, ConnData] = {}
+        self._sid_to_conn: dict[str, Conn] = {}
 
         self._subsid_to_mtype: dict[str, type[Msg]] = {}
         self._subsid_to_subaction: dict[str, _SubAction] = {}
         self._mtype_to_subactions: \
             dict[type[Msg], list[_SubAction]] = {}
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
-
-        # network in and out unprocessed yet raw msgs
-        self._net_inp_connsid_and_wsmsg_queue: Queue[tuple[str, Wsmsg]] = \
-            Queue(self._cfg.msg_queue_max_size)
-        self._net_out_connsids_and_rawmsg_queue: Queue[
-            tuple[set[str], dict]
-        ] = Queue(self._cfg.msg_queue_max_size)
 
         self._net_inp_queue_processor: Task | None = None
         self._net_out_queue_processor: Task | None = None
@@ -327,11 +313,29 @@ class ServerBus(Singleton):
 
         self._rpc_tasks: set[asyncio.Task] = set()
 
+    def _init_transports(self):
+        self._conn_type_to_transport: dict[type[Conn], Transport] = {}
+        transports = self._cfg.transports
+        if not self._cfg.transports:
+            transports = [self.DEFAULT_TRANSPORT]
+        for transport in typing.cast(list[Transport], transports):
+            if transport.conn_type in self._conn_type_to_transport:
+                log.err(
+                    f"conn type {transport.conn_type} is already registered"
+                    " => skip")
+                continue
+            if not transport.is_server:
+                log.err(
+                    f"only server transports are accepted, got {transport}"
+                    " => skip")
+                continue
+            self._conn_type_to_transport[transport.conn_type] = transport
+
     async def close_conn(self, sid: str) -> Res[None]:
-        if sid not in self._sid_to_conn_data:
+        if sid not in self._sid_to_conn:
             return Err(NotFoundErr(f"conn with sid {sid}"))
-        conn = self._sid_to_conn_data[sid].conn
-        del self._sid_to_conn_data[sid]
+        conn = self._sid_to_conn[sid].conn
+        del self._sid_to_conn[sid]
         if not conn.closed:
             await conn.close()
         return Ok(None)
@@ -542,8 +546,8 @@ class ServerBus(Singleton):
         finally:
             if not conn.closed:
                 await conn.close()
-            if connsid in self._sid_to_conn_data:
-                del self._sid_to_conn_data[connsid]
+            if connsid in self._sid_to_conn:
+                del self._sid_to_conn[connsid]
 
     async def _read_first_wsmsg(self, conn: Websocket) -> Res[str]:
         first_wsmsg = await conn.receive(self._cfg.register_timeout)
@@ -563,7 +567,7 @@ class ServerBus(Singleton):
 
         # assign connsid only after receiving correct register req and
         # approving of it by the resource server
-        self._sid_to_conn_data[connsid] = ConnData(
+        self._sid_to_conn[connsid] = ConnData(
             conn=conn, tokens=first_msg.tokens)
 
         return Ok(connsid)
@@ -710,7 +714,7 @@ class ServerBus(Singleton):
 
             log.info(f"send to connsids {connsids}: {rawmsg}", 2)
             coros: list[Coroutine] = [
-                self._sid_to_conn_data[connsid].conn.send_json(rawmsg)
+                self._sid_to_conn[connsid].conn.send_json(rawmsg)
                 for connsid in connsids
             ]
             await asyncio.gather(*coros)
@@ -894,7 +898,7 @@ class ServerBus(Singleton):
 
                 # clean unexistent connsids
                 for connsid in connsids:
-                    if connsid not in self._sid_to_conn_data:
+                    if connsid not in self._sid_to_conn:
                         log.err(
                             f"no conn with id {connsid}"
                             " => del from recipients"
