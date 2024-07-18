@@ -272,8 +272,6 @@ class ServerBus(Singleton):
 
         CodeStorage.update()
 
-        self.FALLBACK_ERRCODEID = self._ERRCODE_TO_ERRCODEID["rxcat_fallback_err"]
-
         self._sid_to_conn: dict[str, Conn] = {}
 
         self._subsid_to_mtype: dict[str, type[Msg]] = {}
@@ -420,7 +418,7 @@ class ServerBus(Singleton):
             final_to_connsids = [triggered_msg.m_connsid]
 
         evt = ErrEvt(
-            err=ErrParsed.create(err),
+            err=ErrDto.create(err),
             inner__err=err,
             rsid=rsid,
             m_target_connsids=final_to_connsids,
@@ -432,24 +430,6 @@ class ServerBus(Singleton):
             log.catch(err)
         await self.pub(evt, None, pub_opts)
 
-    def try_get_mcodeid_for_mcode(self, mcode: str) -> int | None:
-        res = self._MCODE_TO_MCODEID.get(mcode, -1)
-        if res == -1:
-            return None
-        return res
-
-    def try_get_errcodeid_for_errcode(self, errcode: str) -> int | None:
-        res = self._ERRCODE_TO_ERRCODEID.get(errcode, -1)
-        if res == -1:
-            return None
-        return res
-
-    def get_errcode_for_errcodeid(self, errcodeid: int) -> Res[str]:
-        for k, v in self._ERRCODE_TO_ERRCODEID.items():
-            if v == errcodeid:
-                return Ok(k)
-        return Err(NotFoundErr(f"errcode for errcodeid {errcodeid}"))
-
     async def postinit(self):
         # update codes for the second time to catch up all defined
         # ones
@@ -459,14 +439,14 @@ class ServerBus(Singleton):
         FcodeCore.deflock = True
 
         if self._initd_client_evt_mcodeid is None:
-            mcodeid = self.try_get_mcodeid_for_mtype(InitdClientEvt)
+            mcodeid = CodeStorage.try_get_mcodeid_for_mtype(InitdClientEvt)
             assert mcodeid is not None
             self._initd_client_evt_mcodeid = mcodeid
 
         if not self._preserialized_initd_client_evt:
             self._preserialized_initd_client_evt = InitdClientEvt(
-                indexedMcodes=self.INDEXED_MCODES,
-                indexedErrcodes=self.INDEXED_ERRCODES,
+                indexedMcodes=CodeStorage.INDEXED_MCODES,
+                indexedErrcodes=CodeStorage.INDEXED_ERRCODES,
                 rsid=None
             ).serialize_json(self._initd_client_evt_mcodeid)
         self._is_post_initd = True
@@ -681,7 +661,7 @@ class ServerBus(Singleton):
                 )
             )
             return None
-        if mcodeid > len(self._INDEXED_ACTIVE_MCODES) - 1:
+        if mcodeid > len(CodeStorage._INDEXED_ACTIVE_MCODES) - 1:
             await self.throw(ValueError(
                 f"unrecognized mcodeid {mcodeid}"
             ))
@@ -689,8 +669,7 @@ class ServerBus(Singleton):
 
         t: type[Msg] | None = \
             FcodeCore.try_get_type_for_any_code(
-                self._INDEXED_ACTIVE_MCODES[mcodeid]
-            )
+                CodeStorage._INDEXED_ACTIVE_MCODES[mcodeid])
         assert t is not None, "if mcodeid found, mtype must be found"
 
         t = typing.cast(type[Msg], t)
@@ -814,7 +793,7 @@ class ServerBus(Singleton):
                      " inner_err attached, which is strange and unexpected"
                      " => use default Exception"
                 )
-                final_err = Exception(pointer.target.errmsg)
+                final_err = Exception(pointer.target.err.msg)
             raise final_err
 
         return pointer.target
@@ -874,7 +853,7 @@ class ServerBus(Singleton):
         msg: Msg,
         opts: PubOpts = PubOpts()
     ):
-        mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
+        mcodeid: int | None = CodeStorage.try_get_mcodeid_for_mtype(mtype)
         if mcodeid is not None and msg.m_target_connsids:
             rmsg = msg.serialize_json(mcodeid)
             for connsid in msg.m_target_connsids:

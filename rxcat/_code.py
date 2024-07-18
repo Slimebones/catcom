@@ -1,5 +1,8 @@
 from typing import ClassVar
+from pykit.err import NotFoundErr
 from pykit.fcode import FcodeCore
+from pykit.res import Res
+from result import Err, Ok
 from rxcat._msg import Msg
 
 
@@ -17,11 +20,14 @@ class CodeStorage:
 
     INDEXED_MCODES: ClassVar[list[list[str]]] = []
     INDEXED_ERRCODES: ClassVar[list[list[str]]] = []
+    FALLBACK_ERRCODEID: ClassVar[int]
 
     @classmethod
     def update(cls):
         cls._update_mcodes()
         cls._update_errcodes()
+        cls.FALLBACK_ERRCODEID = cls._ERRCODE_TO_ERRCODEID[
+            "rxcat_fallback_err"]
 
     @classmethod
     def _update_mcodes(cls):
@@ -54,6 +60,27 @@ class CodeStorage:
             cls._INDEXED_ACTIVE_ERRCODES.append(errcodes[0])
             for errcode in errcodes:
                 cls._ERRCODE_TO_ERRCODEID[errcode] = id
+
+    @classmethod
+    def try_get_mcodeid_for_mcode(cls, mcode: str) -> int | None:
+        res = cls._MCODE_TO_MCODEID.get(mcode, -1)
+        if res == -1:
+            return None
+        return res
+
+    @classmethod
+    def try_get_errcodeid_for_errcode(cls, errcode: str) -> int | None:
+        res = cls._ERRCODE_TO_ERRCODEID.get(errcode, -1)
+        if res == -1:
+            return None
+        return res
+
+    @classmethod
+    def get_errcode_for_errcodeid(cls, errcodeid: int) -> Res[str]:
+        for k, v in cls._ERRCODE_TO_ERRCODEID.items():
+            if v == errcodeid:
+                return Ok(k)
+        return Err(NotFoundErr(f"errcode for errcodeid {errcodeid}"))
 
     @classmethod
     def try_get_mcodeid_for_mtype(cls, mtype: type[Msg]) -> int | None:
