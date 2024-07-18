@@ -1,3 +1,4 @@
+from asyncio import Queue
 from typing import Self
 import pytest_asyncio
 from pykit.fcode import FcodeCore
@@ -22,25 +23,29 @@ async def server_bus() -> ServerBus:
 class MockConn(Conn[None]):
     def __init__(self, args: ConnArgs[None]) -> None:
         super().__init__(args)
+        self.inp_queue: Queue[dict] = Queue()
+        self.out_queue: Queue[dict] = Queue()
 
     def __aiter__(self) -> Self:
         return self
 
     async def __anext__(self) -> dict:
-        return {}
+        return await self.recv()
 
-    async def receive_json(self) -> dict:
-        return {}
+    async def recv(self) -> dict:
+        return await self.inp_queue.get()
 
     async def send_bytes(self, data: bytes):
         return
 
-    async def send_json(self, data: dict):
-        return
-
-    async def send_str(self, data: str):
-        return
+    async def send(self, data: dict):
+        await self.out_queue.put(data)
 
     async def close(self):
         return
 
+    async def client__send_json(self, data: dict):
+        await self.inp_queue.put(data)
+
+    async def client__receive_json(self) -> dict:
+        return await self.inp_queue.get()

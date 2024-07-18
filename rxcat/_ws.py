@@ -20,17 +20,11 @@ class Ws(Conn[AiohttpWebsocket]):
             raise StopAsyncIteration
         return connmsg.json()
 
-    async def receive_json(self) -> dict:
+    async def recv(self) -> dict | bytes:
         return await self._core.receive_json()
 
-    async def send_bytes(self, data: bytes):
-        return await self._core.send_bytes(data)
-
-    async def send_json(self, data: dict):
+    async def send(self, data: dict | bytes):
         return await self._core.send_json(data)
-
-    async def send_str(self, data: str):
-        return await self._core.send_str(data)
 
     async def close(self):
         return await self._core.close()

@@ -39,7 +39,8 @@ async def test_rpc():
     conn_task_2 = asyncio.create_task(server_bus.conn(conn_2))
 
     ServerBus.register_rpc("update_email", update_email)
-    await server_bus.inner__accept_net_msg(RpcReq(
-        key="update_email:" + RandomUtils.makeid(),
-        kwargs={"username": "test_username", "email": "test_email"}))
-    await asyncio.wait_for(evt.wait(), 1)
+    await conn_1.client__send_json(RpcReq(
+            key="update_email:" + RandomUtils.makeid(),
+            kwargs={"username": "test_username", "email": "test_email"}
+        ).model_dump())
+    await asyncio.wait_for(conn_1.recv(), 1)

@@ -552,7 +552,7 @@ class ServerBus(Singleton):
         try:
             if atransport.transport.server__register_process == "register_req":
                 eject(await self._read_first_msg(conn, atransport))
-            await conn.send_json(self._preserialized_initd_client_evt)
+            await conn.send(self._preserialized_initd_client_evt)
             await self._read_ws(conn, atransport)
         finally:
             if not conn.is_closed:
@@ -572,7 +572,7 @@ class ServerBus(Singleton):
             atransport: ActiveTransport) -> dict:
         try:
             return await asyncio.wait_for(
-                conn.receive_json(),
+                conn.recv(),
                 atransport.transport.inactivity_timeout)
         except TimeoutError as err:
             raise TimeoutError(
@@ -620,7 +620,7 @@ class ServerBus(Singleton):
                     # we don't pass whole conn to avoid control leaks
                     await transport.on_recv(conn.sid, rmsg)
             msg = await self.parse_rmsg(rmsg, conn)
-            await self.inner__accept_net_msg(msg)
+            await self._accept_net_msg(msg)
 
     async def _process_out_queue(
             self,
@@ -635,9 +635,9 @@ class ServerBus(Singleton):
 
             log.info(f"send to connsid {conn.sid}: {rmsg}", 2)
 
-            await conn.send_json(rmsg)
+            await conn.send(rmsg)
 
-    async def inner__accept_net_msg(self, msg: Msg | None):
+    async def _accept_net_msg(self, msg: Msg | None):
         if msg is None:
             return
         elif isinstance(msg, RpcEvt):
@@ -710,7 +710,7 @@ class ServerBus(Singleton):
             return None
 
         # for future rsid navigation
-        # rsid: str | None = raw_msg.get("rsid", None)
+        # rsid: str | None = rmsg.get("rsid", None)
 
         mcodeid: int | None = rmsg.get("mcodeid", None)
         if mcodeid is None:

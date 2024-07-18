@@ -36,6 +36,9 @@ class ConnArgs(BaseModel, Generic[TConnCore]):
         arbitrary_types_allowed = True
 
 class Conn(Generic[TConnCore]):
+    """
+    Connection representation.
+    """
     def __init__(self, args: ConnArgs[TConnCore]) -> None:
         self._sid = RandomUtils.makeid()
         self._core = args.core
@@ -63,16 +66,10 @@ class Conn(Generic[TConnCore]):
     async def __anext__(self) -> dict:
         raise NotImplementedError
 
-    async def receive_json(self) -> dict:
+    async def recv(self) -> dict | bytes:
         raise NotImplementedError
 
-    async def send_str(self, data: str):
-        raise NotImplementedError
-
-    async def send_json(self, data: dict):
-        raise NotImplementedError
-
-    async def send_bytes(self, data: bytes):
+    async def send(self, data: dict | bytes):
         raise NotImplementedError
 
     async def close(self):
