@@ -583,17 +583,20 @@ class ServerBus(Singleton):
             return Err(ValueErr(
                 f"first msg should be RegisterReq, got {msg}"))
 
+        register_res = Ok(None)
         if self._cfg.register_fn is not None:
             register_res = await self._cfg.register_fn(
                 msg.tokens, msg.data)
             if isinstance(register_res, Err):
                 return register_res
-            # TODO:
-            #   send back register data for the client if register_res is Ok
 
         # assign connsid only after receiving correct register req and
         # approving of it by the resource server
         self._sid_to_conn[conn.sid] = conn
+
+        # TODO:
+        #   send back register data for the client if register_res is Ok
+        return register_res
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:
@@ -916,35 +919,32 @@ class ServerBus(Singleton):
         opts: PubOpts = PubOpts()
     ):
         mcodeid: int | None = self.try_get_mcodeid_for_mtype(mtype)
-        if mcodeid is not None:
-            connsids: set[str] = set(msg.m_target_connsids)
-            if connsids:
-                connsids_to_del: set[str] = set()
-                conns: list[Conn] = []
-
-                # clean unexistent connsids
-                for connsid in connsids:
-                    if connsid not in self._sid_to_conn:
-                        log.err(
-                            f"no conn with id {connsid}"
-                            " => del from recipients"
-                        )
-                        connsids_to_del.add(connsid)
-                        if opts.on_missing_connsid:
-                            try:
-                                await opts.on_missing_connsid(connsid)
-                            except Exception as err:
-                                log.err("during on_missing_connsid fn call"
-                                        " the following err has occured:")
-                                log.err_or_catch(err, 1)
-                                continue
-                for connsid in connsids_to_del:
-                    connsids.remove(connsid)
-
-                rawmsg = msg.serialize_json(mcodeid)
-                self._net_out_connsids_and_rawmsg_queue.put_nowait(
-                    (conns, rawmsg)
-                )
+        if mcodeid is not None and msg.m_target_connsids:
+            rmsg = msg.serialize_json(mcodeid)
+            for connsid in msg.m_target_connsids:
+                if connsid not in self._sid_to_conn:
+                    log.err(
+                        f"no conn with id {connsid} for msg {msg}"
+                        " => skip"
+                    )
+                    # do we really need this?
+                    if opts.on_missing_connsid:
+                        try:
+                            await opts.on_missing_connsid(connsid)
+                        except Exception as err:
+                            log.err(
+                                "during on_missing_consid fn call err"
+                                f" {get_fully_qualified_name(err)}"
+                                " #stacktrace")
+                            log.catch(err)
+                conn = self._sid_to_conn[connsid]
+                conn_type = type(conn)
+                # if we have conn in self._sid_to_conn, we must have transport
+                if conn_type not in self._conn_type_to_atransport:
+                    log.err(f"broken state of conn_type_to_atransport => skip")
+                    continue
+                atransport = self._conn_type_to_atransport[conn_type]
+                await atransport.inp_queue.put((conn, rmsg))
 
     async def _send_evt_as_response(self, evt: Evt):
         if not evt.rsid:
