@@ -26,7 +26,8 @@ async def test_rpc():
             Transport(
                 is_server=True,
                 conn_type=MockConn,
-                on_send=on_send)
+                on_send=on_send,
+                server__register_process="none")
         ])
     await server_bus.init(cfg)
 

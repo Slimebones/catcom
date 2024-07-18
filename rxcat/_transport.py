@@ -9,7 +9,7 @@ and pass new established connections to ServerBus.conn method, where
 connection processing further relies on ServerBus.
 """
 from asyncio import Queue, Task
-from typing import Generic, Protocol, Self, TypeVar, runtime_checkable
+from typing import Generic, Literal, Protocol, Self, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 from pykit.rand import RandomUtils
@@ -86,6 +86,17 @@ class Transport(BaseModel):
     host: str = ""
     port: int = 0
     route: str = ""
+
+    server__register_process: Literal["none", "register_req"] = "none"
+    """
+    Defines how client connections must register in the server.
+
+    Values:
+        - none: No registration is required.
+        - register_req: The client must send RegisterReq as a first msg upon
+                        connecting to the bus. On any other msg the client
+                        will be disconnected.
+    """
 
     max_inp_queue_size: int = 10000
     """

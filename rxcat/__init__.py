@@ -550,7 +550,8 @@ class ServerBus(Singleton):
         log.info(f"accept new conn {conn}", 2)
 
         try:
-            eject(await self._read_first_msg(conn, atransport))
+            if atransport.transport.server__register_process == "register_req":
+                eject(await self._read_first_msg(conn, atransport))
             await conn.send_json(self._preserialized_initd_client_evt)
             await self._read_ws(conn, atransport)
         finally:
