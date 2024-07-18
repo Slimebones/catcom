@@ -1,11 +1,17 @@
 import asyncio
 
+from pykit.err import ValErr
+from pykit.obj import get_fully_qualified_name
 from pykit.rand import RandomUtils
-from pykit.res import Res
+from pykit.res import Res, eject
 from result import Err, Ok
 
 from rxcat import ConnArgs, ServerBus, ServerBusCfg, Transport
-from tests.conftest import MockConn
+from tests.conftest import (
+    MockConn,
+    find_errcodeid_in_welcome_rmsg,
+    find_mcodeid_in_welcome_rmsg,
+)
 
 
 async def test_rpc():
@@ -13,7 +19,7 @@ async def test_rpc():
         username = data["username"]
         email = data["email"]
         if username == "throw":
-            return Err(Exception("hello"))
+            return Err(ValErr("hello"))
         assert username == "test_username"
         assert email == "test_email"
         return Ok(0)
@@ -38,12 +44,8 @@ async def test_rpc():
     conn_task_1 = asyncio.create_task(server_bus.conn(conn_1))
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
-    rxcat_rpc_req_mcodeid = -1
-    for i, code_container in enumerate(welcome_rmsg["indexedMcodes"]):
-        if "rxcat_rpc_req" in code_container:
-            rxcat_rpc_req_mcodeid = i
-            break
-    assert rxcat_rpc_req_mcodeid >= 0
+    rxcat_rpc_req_mcodeid = eject(find_mcodeid_in_welcome_rmsg(
+        "rxcat_rpc_req", welcome_rmsg))
 
     ServerBus.register_rpc("update_email", update_email)
 
@@ -69,6 +71,10 @@ async def test_rpc():
     })
     rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
     assert rpc_data["key"] == rpc_key
-    assert rpc_data["val"] == 0
+    val = rpc_data["val"]
+    assert val["codeid"] == eject(
+        find_errcodeid_in_welcome_rmsg("val-err", welcome_rmsg))
+    assert val["msg"] == "hello"
+    assert val["name"] == get_fully_qualified_name(ValErr())
 
     conn_task_1.cancel()

@@ -2,7 +2,10 @@ from asyncio import Queue
 from typing import Self
 
 import pytest_asyncio
+from pykit.err import ValErr
 from pykit.fcode import FcodeCore
+from pykit.res import Res
+from result import Err, Ok
 
 from rxcat import Conn, ConnArgs, ServerBus
 
@@ -47,3 +50,15 @@ class MockConn(Conn[None]):
 
     async def client__recv(self) -> dict:
         return await self.out_queue.get()
+
+def find_mcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
+    for i, code_container in enumerate(rmsg["indexedMcodes"]):
+        if code in code_container:
+            return Ok(i)
+    return Err(ValErr())
+
+def find_errcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
+    for i, code_container in enumerate(rmsg["indexedErrcodes"]):
+        if code in code_container:
+            return Ok(i)
+    return Err(ValErr())

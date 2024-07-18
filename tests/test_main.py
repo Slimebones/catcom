@@ -5,6 +5,7 @@ from pykit.res import Res
 from result import Err, Ok
 
 from rxcat import ErrEvt, Evt, Req, ServerBus
+from rxcat._code import CodeStorage
 
 
 @code("msg1")
@@ -43,7 +44,7 @@ async def test_res_returning(server_bus: ServerBus):
     async def on_err_evt(evt: ErrEvt):
         nonlocal is_err_evt_arrived
         assert type(evt.inner__err) is ValueErr
-        assert evt.errmsg == "hello"
+        assert evt.err.msg == "hello"
         is_err_evt_arrived = True
 
     async def on_evt1(evt: _Evt1):
@@ -92,7 +93,7 @@ async def test_inner_pubsub(server_bus: ServerBus):
     assert is_msg2_arrived
 
 async def test_evt_serialization(server_bus: ServerBus) -> None:
-    msg1_mcodeid = server_bus.try_get_mcodeid_for_mtype(_Evt1)
+    msg1_mcodeid = CodeStorage.try_get_mcodeid_for_mtype(_Evt1)
     assert msg1_mcodeid is not None
 
     m = _Evt1(num=1, rsid=None)
@@ -110,4 +111,4 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
     assert m == m_after
 
 def test_register_req_has_index_0(server_bus: ServerBus):
-    assert server_bus.INDEXED_MCODES[0][0] == "rxcat_register_req"
+    assert CodeStorage.indexed_mcodes[0][0] == "rxcat_register_req"

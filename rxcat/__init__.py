@@ -26,7 +26,7 @@ from typing import (
 )
 
 from pydantic import BaseModel
-from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
+from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValErr
 from pykit.fcode import FcodeCore, code
 from pykit.log import log
 from pykit.obj import get_fully_qualified_name
@@ -355,7 +355,7 @@ class ServerBus(Singleton):
             or (
                 not iscls and (
                     isinstance(msg, (RpcEvt, RpcReq))))):
-            raise ValueErr(
+            raise ValErr(
                 f"msg {msg} in context of \"{ctx}\" cannot be associated with"
                 " rpc")
 
@@ -523,9 +523,9 @@ class ServerBus(Singleton):
         rmsg = await self._receive_from_conn(conn, atransport)
         msg = await self.parse_rmsg(rmsg, conn)
         if not msg:
-            return Err(ValueErr("failed to parse first msg from"))
+            return Err(ValErr("failed to parse first msg from"))
         if not isinstance(msg, RegisterReq):
-            return Err(ValueErr(
+            return Err(ValErr(
                 f"first msg should be RegisterReq, got {msg}"))
 
         register_res = Ok(None)
@@ -627,7 +627,9 @@ class ServerBus(Singleton):
         if isinstance(res, Ok):
             val = res.ok_value
         elif isinstance(res, Err):
-            val = res.err_value
+            val = ErrDto.create(
+                res.err_value,
+                CodeStorage.try_get_errcodeid_for_errtype(type(res.err_value)))
         else:
             log.err(
                 f"rpcfn on req {req} returned non-res val {res} => skip")
@@ -650,20 +652,20 @@ class ServerBus(Singleton):
         mcodeid: int | None = rmsg.get("mcodeid", None)
         if mcodeid is None:
             await self.throw(
-                ValueError(
+                ValErr(
                     f"got msg {rmsg} with undefined mcodeid"
                 )
             )
             return None
         if mcodeid < 0:
             await self.throw(
-                ValueError(
+                ValErr(
                     f"invalid mcodeid {mcodeid}"
                 )
             )
             return None
         if mcodeid > len(CodeStorage.indexed_active_mcodes) - 1:
-            await self.throw(ValueError(
+            await self.throw(ValErr(
                 f"unrecognized mcodeid {mcodeid}"
             ))
             return None
@@ -727,7 +729,7 @@ class ServerBus(Singleton):
 
     async def unsub(self, subsid: str) -> Res[None]:
         if subsid not in self._subsid_to_mtype:
-            return Err(ValueError(f"sub with id {subsid} not found"))
+            return Err(ValErr(f"sub with id {subsid} not found"))
 
         assert self._subsid_to_mtype[subsid] in self._mtype_to_subactions
 
@@ -838,7 +840,7 @@ class ServerBus(Singleton):
     async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
         subactions = self._mtype_to_subactions[mtype]
         if not subactions:
-            await self.throw(ValueErr(
+            await self.throw(ValErr(
                 f"no subactions for msg type {mtype}"))
         removing_subaction_sids = []
         for subaction in subactions:
