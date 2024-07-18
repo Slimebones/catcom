@@ -11,6 +11,7 @@
 - added ErrEvt.errtype which is set to fully qualified string representation of an error type
 - added SEND/RECV callbacks defined as cfg.on_send and cfg.on_recv
 - added Rpc support
+- added support of multiple Transport layers and their Conn objects
 
 # 0.2.3
 
