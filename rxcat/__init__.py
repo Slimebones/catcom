@@ -573,7 +573,8 @@ class ServerBus(Singleton):
                 f"inactivity of conn {conn} for transport {atransport}"
             ) from err
 
-    async def _read_first_msg(self, conn: Conn, atransport: ActiveTransport):
+    async def _read_first_msg(
+            self, conn: Conn, atransport: ActiveTransport) -> Res:
         rmsg = await self._receive_from_conn(conn, atransport)
         msg = await self.parse_rmsg(rmsg, conn)
         if not msg:
@@ -587,6 +588,8 @@ class ServerBus(Singleton):
                 msg.tokens, msg.data)
             if isinstance(register_res, Err):
                 return register_res
+            # TODO:
+            #   send back register data for the client if register_res is Ok
 
         # assign connsid only after receiving correct register req and
         # approving of it by the resource server
@@ -917,6 +920,7 @@ class ServerBus(Singleton):
             connsids: set[str] = set(msg.m_target_connsids)
             if connsids:
                 connsids_to_del: set[str] = set()
+                conns: list[Conn] = []
 
                 # clean unexistent connsids
                 for connsid in connsids:
@@ -939,7 +943,7 @@ class ServerBus(Singleton):
 
                 rawmsg = msg.serialize_json(mcodeid)
                 self._net_out_connsids_and_rawmsg_queue.put_nowait(
-                    (connsids, rawmsg)
+                    (conns, rawmsg)
                 )
 
     async def _send_evt_as_response(self, evt: Evt):

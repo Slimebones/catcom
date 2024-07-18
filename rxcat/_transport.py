@@ -127,12 +127,6 @@ class Transport(BaseModel):
 class ActiveTransport(BaseModel):
     transport: Transport
     inp_queue: Queue[tuple[Conn, dict]]
-    """
-    host connection + rmsg
-    """
-    out_queue: Queue[tuple[set[Conn], dict]]
-    """
-    set of connections to send to + rmsg
-    """
+    out_queue: Queue[tuple[Conn, dict]]
     inp_queue_processor: Task
     out_queue_processor: Task
