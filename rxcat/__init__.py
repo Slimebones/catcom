@@ -297,12 +297,12 @@ class ServerBus(Singleton):
         self._rpc_tasks: set[asyncio.Task] = set()
 
     def _init_transports(self):
-        self._conn_type_to_transport: dict[type[Conn], ActiveTransport] = {}
+        self._conn_type_to_atransport: dict[type[Conn], ActiveTransport] = {}
         transports = self._cfg.transports
         if not self._cfg.transports:
             transports = [self.DEFAULT_TRANSPORT]
         for transport in typing.cast(list[Transport], transports):
-            if transport.conn_type in self._conn_type_to_transport:
+            if transport.conn_type in self._conn_type_to_atransport:
                 log.err(
                     f"conn type {transport.conn_type} is already registered"
                     " => skip")
@@ -313,15 +313,19 @@ class ServerBus(Singleton):
                     " => skip")
                 continue
 
-            inp_task = asyncio.create_task(self._process_inp_queue())
-            out_task = asyncio.create_task(self._process_net_out_queue())
-            self._conn_type_to_transport[transport.conn_type] = \
-                ActiveTransport(
-                    transport=transport,
-                    inp_queue=Queue(transport.max_inp_queue_size),
-                    out_queue=Queue(transport.max_out_queue_size),
-                    inp_queue_processor=inp_task,
-                    out_queue_processor=out_task)
+            inp_queue = Queue(transport.max_inp_queue_size)
+            out_queue = Queue(transport.max_out_queue_size)
+            inp_task = asyncio.create_task(self._process_inp_queue(
+                transport, inp_queue))
+            out_task = asyncio.create_task(self._process_out_queue(
+                transport, out_queue))
+            atransport = ActiveTransport(
+                transport=transport,
+                inp_queue=inp_queue,
+                out_queue=out_queue,
+                inp_queue_processor=inp_task,
+                out_queue_processor=out_task)
+            self._conn_type_to_atransport[transport.conn_type] = atransport
 
 
     async def close_conn(self, sid: str) -> Res[None]:
@@ -516,13 +520,12 @@ class ServerBus(Singleton):
         """
         bus = ServerBus.ie()
 
-        if not bus._is_initd:  # noqa: SLF001
+        if not bus._is_initd: # noqa: SLF001
             return
 
-        if bus._net_inp_queue_processor:  # noqa: SLF001
-            bus._net_inp_queue_processor.cancel()  # noqa: SLF001
-        if bus._net_out_queue_processor:  # noqa: SLF001
-            bus._net_out_queue_processor.cancel()  # noqa: SLF001
+        for atransport in bus._conn_type_to_atransport.values(): # noqa: SLF001
+            atransport.inp_queue_processor.cancel()
+            atransport.out_queue_processor.cancel()
 
         ServerBus.try_discard()
 
@@ -530,21 +533,21 @@ class ServerBus(Singleton):
         if not self._is_post_initd:
             await self.postinit()
 
-        transport = self._conn_type_to_transport.get(type(conn), None)
-        if transport is None:
+        atransport = self._conn_type_to_atransport.get(type(conn), None)
+        if atransport is None:
             log.err(
                 f"cannot find registered transport for conn {conn}"
                 " => close conn")
             with contextlib.suppress(Exception):
                 await conn.close()
-        transport = typing.cast(Transport, transport)
+        atransport = typing.cast(ActiveTransport, atransport)
 
         log.info(f"accept new conn {conn}", 2)
 
         try:
-            eject(await self._read_first_msg(conn, transport))
+            eject(await self._read_first_msg(conn, atransport))
             await conn.send_json(self._preserialized_initd_client_evt)
-            await self._read_ws(conn)
+            await self._read_ws(conn, atransport)
         finally:
             if not conn.is_closed:
                 try:
@@ -554,25 +557,24 @@ class ServerBus(Singleton):
                         f"err {get_fully_qualified_name(err)} is raised"
                         f" during conn {conn} closing, #stacktrace")
                     log.catch(err)
-            if connsid in self._sid_to_conn:
-                del self._sid_to_conn[connsid]
+            if conn.sid in self._sid_to_conn:
+                del self._sid_to_conn[conn.sid]
 
     async def _receive_from_conn(
             self,
             conn: Conn,
-            transport: Transport) -> dict:
+            atransport: ActiveTransport) -> dict:
         try:
             return await asyncio.wait_for(
                 conn.receive_json(),
-                transport.inactivity_timeout)
+                atransport.transport.inactivity_timeout)
         except TimeoutError as err:
             raise TimeoutError(
-                f"inactivity of conn {conn} for transport {transport}"
+                f"inactivity of conn {conn} for transport {atransport}"
             ) from err
 
-    async def _read_first_msg(
-            self, conn: Conn, transport: Transport) -> Res[str]:
-        rmsg = await self._receive_from_conn(conn, transport)
+    async def _read_first_msg(self, conn: Conn, atransport: ActiveTransport):
+        rmsg = await self._receive_from_conn(conn, atransport)
         msg = await self.parse_rmsg(rmsg, conn)
         if not msg:
             return Err(ValueErr("failed to parse first msg from"))
@@ -593,16 +595,39 @@ class ServerBus(Singleton):
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:
             log.info(f"receive: {rmsg}", 2)
-            atransport.inp_queue.put_nowait((conn.sid, rmsg))
+            atransport.inp_queue.put_nowait((conn, rmsg))
 
-    async def _process_inp_queue(self, atransport: ActiveTransport):
+    async def _process_inp_queue(
+            self,
+            transport: Transport,
+            queue: Queue[tuple[Conn, dict]]):
         while True:
-            connsid, rmsg = await atransport.inp_queue.get()
-            if atransport.transport.on_recv:
+            conn, rmsg = await queue.get()
+            if transport.on_recv:
                 with contextlib.suppress(Exception):
-                    await atransport.transport.on_recv(connsid, rmsg)
-            msg = await self.parse_rmsg(rmsg)
+                    # we don't pass whole conn to avoid control leaks
+                    await transport.on_recv(conn.sid, rmsg)
+            msg = await self.parse_rmsg(rmsg, conn)
             await self.inner__accept_net_msg(msg)
+
+    async def _process_out_queue(
+            self,
+            transport: Transport,
+            queue: Queue[tuple[set[Conn], dict]]):
+        while True:
+            conns, rmsg = await queue.get()
+            connsids = {c.sid for c in conns}
+
+            if transport.on_send:
+                with contextlib.suppress(Exception):
+                    await transport.on_send(connsids, rmsg)
+
+            log.info(f"send to connsids {connsids}: {rmsg}", 2)
+            coros = [
+                self._sid_to_conn[connsid].send_json(rmsg)
+                for connsid in connsids
+            ]
+            await asyncio.gather(*coros)
 
     async def inner__accept_net_msg(self, msg: Msg | None):
         if msg is None:
@@ -715,22 +740,6 @@ class ServerBus(Singleton):
             return None
 
         return msg
-
-    async def _process_net_out_queue(self) -> None:
-        while True:
-            connsids, rawmsg = \
-                await self._net_out_connsids_and_rawmsg_queue.get()
-
-            if self._cfg.on_send:
-                with contextlib.suppress(Exception):
-                    await self._cfg.on_send(connsids, rawmsg)
-
-            log.info(f"send to connsids {connsids}: {rawmsg}", 2)
-            coros: list[Coroutine] = [
-                self._sid_to_conn[connsid].conn.send_json(rawmsg)
-                for connsid in connsids
-            ]
-            await asyncio.gather(*coros)
 
     async def sub(
         self,
