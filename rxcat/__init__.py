@@ -624,21 +624,17 @@ class ServerBus(Singleton):
     async def _process_out_queue(
             self,
             transport: Transport,
-            queue: Queue[tuple[set[Conn], dict]]):
+            queue: Queue[tuple[Conn, dict]]):
         while True:
-            conns, rmsg = await queue.get()
-            connsids = {c.sid for c in conns}
+            conn, rmsg = await queue.get()
 
             if transport.on_send:
                 with contextlib.suppress(Exception):
-                    await transport.on_send(connsids, rmsg)
+                    await transport.on_send(conn.sid, rmsg)
 
-            log.info(f"send to connsids {connsids}: {rmsg}", 2)
-            coros = [
-                self._sid_to_conn[connsid].send_json(rmsg)
-                for connsid in connsids
-            ]
-            await asyncio.gather(*coros)
+            log.info(f"send to connsid {conn.sid}: {rmsg}", 2)
+
+            await conn.send_json(rmsg)
 
     async def inner__accept_net_msg(self, msg: Msg | None):
         if msg is None:

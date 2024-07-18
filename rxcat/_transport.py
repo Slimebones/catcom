@@ -21,7 +21,7 @@ TConnCore = TypeVar("TConnCore")
 # required information about it via the bus
 @runtime_checkable
 class OnSendFn(Protocol):
-    async def __call__(self, connsids: set[str], rmsg: dict): ...
+    async def __call__(self, connsid: str, rmsg: dict): ...
 
 # generic Protocol[TConnMsg] is not used due to variance issues
 @runtime_checkable
@@ -82,10 +82,10 @@ class Transport(BaseModel):
     is_server: bool
     conn_type: type[Conn]
 
-    protocol: str
-    host: str
-    port: int
-    route: str
+    protocol: str = ""
+    host: str = ""
+    port: int = 0
+    route: str = ""
 
     max_inp_queue_size: int = 10000
     """
@@ -95,6 +95,8 @@ class Transport(BaseModel):
     """
     If less or equal than zero, no limitation is applied.
     """
+
+    # TODO: add "max_msgs_per_minute" to limit connection's activity
 
     inactivity_timeout: float | None = None
     """
