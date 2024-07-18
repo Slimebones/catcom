@@ -37,7 +37,13 @@ class ConnArgs(BaseModel, Generic[TConnCore]):
 
 class Conn(Generic[TConnCore]):
     """
-    Connection representation.
+    Connection abstract class.
+
+    Methods "recv" and "send" always work with dicts, so implementations
+    must perform necessary operations to convert incoming data to dict
+    and outcoming data to transport layer's default structure (typically
+    bytes). This is dictated by the need to product rxcat.Msg objects, which
+    can be conveniently done only through parsed dict object.
     """
     def __init__(self, args: ConnArgs[TConnCore]) -> None:
         self._sid = RandomUtils.makeid()
@@ -66,10 +72,10 @@ class Conn(Generic[TConnCore]):
     async def __anext__(self) -> dict:
         raise NotImplementedError
 
-    async def recv(self) -> dict | bytes:
+    async def recv(self) -> bytes:
         raise NotImplementedError
 
-    async def send(self, data: dict | bytes):
+    async def send(self, data: bytes):
         raise NotImplementedError
 
     async def close(self):
