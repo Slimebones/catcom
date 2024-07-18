@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from pykit.fcode import code
 from pykit.log import log
 from pykit.rand import RandomUtils
+from rxcat._err import ErrDto
 
 
 class Msg(BaseModel):
@@ -144,9 +145,7 @@ class ErrEvt(Evt):
 
     Only Server-endpoints can throw errs to the bus.
     """
-    errcodeid: int | None = None
-    errmsg: str
-    errtype: str
+    err: ErrDto
 
     inner__err: Exception | None = None
     """

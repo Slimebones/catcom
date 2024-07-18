@@ -12,7 +12,6 @@ every client on connection. For now this is two types of codes:
 import asyncio
 import contextlib
 import functools
-import json
 import typing
 from asyncio import Queue
 from collections.abc import Awaitable, Callable
@@ -59,6 +58,8 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
+from rxcat._err import ErrDto
+from rxcat._code import CodeStorage
 
 __all__ = [
     "ServerBus",
@@ -83,7 +84,9 @@ __all__ = [
     "Ws",
     "Udp",
     "OnSendFn",
-    "OnRecvFn"
+    "OnRecvFn",
+
+    "ErrDto",
 ]
 
 # placed here and not at _rpc.py to avoid circulars
@@ -266,22 +269,10 @@ class ServerBus(Singleton):
         FcodeCore.defcode("rxcat_fallback_err", Exception)
         # only server is able to index mcodes, client is not able to send
         # theirs mcodes on conn, so the server must know client codes at boot
-        #
-        # active and legacy codes are bundled together under the same id, so
-        # we use a dict here
-        self._MCODE_TO_MCODEID: dict[str, int] = {}
-        self._ERRCODE_TO_ERRCODEID: dict[str, int] = {}
 
-        self._INDEXED_ACTIVE_MCODES: list[str] = []
-        self._INDEXED_ACTIVE_ERRCODES: list[str] = []
+        CodeStorage.update()
 
-        self.INDEXED_MCODES: list[list[str]] = []
-        self.INDEXED_ERRCODES: list[list[str]] = []
-
-        self._init_mcodes()
-        self._init_errcodes()
-        self._fallback_errcodeid: int = \
-            self._ERRCODE_TO_ERRCODEID["rxcat_fallback_err"]
+        self.FALLBACK_ERRCODEID = self._ERRCODE_TO_ERRCODEID["rxcat_fallback_err"]
 
         self._sid_to_conn: dict[str, Conn] = {}
 
@@ -414,9 +405,6 @@ class ServerBus(Singleton):
                 err = ResourceServerErr(
                     f"got res with err value {res_err_value},"
                     " which is not an instance of Exception")
-        errcodeid: int | None = self.try_get_errcodeid_for_errtype(type(err))
-        errmsg: str = ", ".join([str(a) for a in err.args])
-
         rsid: str | None = None
         if isinstance(triggered_msg, Evt):
             rsid = triggered_msg.rsid
@@ -432,17 +420,12 @@ class ServerBus(Singleton):
             final_to_connsids = [triggered_msg.m_connsid]
 
         evt = ErrEvt(
-            errcodeid=errcodeid,
-            errmsg=errmsg,
-            errtype=get_fully_qualified_name(err),
+            err=ErrParsed.create(err),
             inner__err=err,
             rsid=rsid,
             m_target_connsids=final_to_connsids,
             inner__is_thrown_by_pubaction=is_thrown_by_pubaction
         )
-
-        if errcodeid is None:
-            errcodeid = self._fallback_errcodeid
 
         log.err(f"thrown err evt: {evt}", 1)
         if self._cfg.are_errs_catchlogged:
@@ -467,41 +450,10 @@ class ServerBus(Singleton):
                 return Ok(k)
         return Err(NotFoundErr(f"errcode for errcodeid {errcodeid}"))
 
-    def _init_mcodes(self):
-        collections = FcodeCore.try_get_all_codes(Msg)
-        assert collections, "must have at least one mcode defined"
-
-        # put RegisterReq to index 0, according to the protocol
-        register_req_start_index = -1
-        for i, c in enumerate(collections):
-            if c[0] == "rxcat_register_req":
-                register_req_start_index = i
-        assert register_req_start_index >= 0, "RegisterReq must be found"
-        # replace whatever is at index 0, and put register req there
-        collections[0], collections[register_req_start_index] = \
-            collections[register_req_start_index], collections[0]
-
-        self.INDEXED_MCODES = collections
-        for id, mcodes in enumerate(collections):
-            self._INDEXED_ACTIVE_MCODES.append(mcodes[0])
-            for mcode in mcodes:
-                self._MCODE_TO_MCODEID[mcode] = id
-
-    def _init_errcodes(self):
-        collections = FcodeCore.try_get_all_codes(Exception)
-        assert collections, "must have at least one errcode defined"
-        self.INDEXED_ERRCODES = collections
-
-        for id, errcodes in enumerate(collections):
-            self._INDEXED_ACTIVE_ERRCODES.append(errcodes[0])
-            for errcode in errcodes:
-                self._ERRCODE_TO_ERRCODEID[errcode] = id
-
     async def postinit(self):
-        # init mcodes and errcodes for the second time to catch up all defined
+        # update codes for the second time to catch up all defined
         # ones
-        self._init_mcodes()
-        self._init_errcodes()
+        CodeStorage.update()
         # restrict any further code defines since we start sending code data
         # to clients
         FcodeCore.deflock = True
@@ -949,7 +901,7 @@ class ServerBus(Singleton):
                     log.err("broken state of conn_type_to_atransport => skip")
                     continue
                 atransport = self._conn_type_to_atransport[conn_type]
-                await atransport.inp_queue.put((conn, rmsg))
+                await atransport.out_queue.put((conn, rmsg))
 
     async def _send_evt_as_response(self, evt: Evt):
         if not evt.rsid:
@@ -1062,37 +1014,3 @@ class ServerBus(Singleton):
             return False
 
         return True
-
-    def try_get_mcodeid_for_mtype(self, mtype: type[Msg]) -> int | None:
-        mcode: str | None = \
-            FcodeCore.try_get_active_code_for_type(mtype)
-        if mcode:
-            mcodeid: int = self._MCODE_TO_MCODEID.get(mcode, -1)
-            assert mcodeid != -1, "must find mcodeid for mcode"
-            return mcodeid
-        return None
-
-    def try_get_mcode_for_mtype(self, mtype: type[Msg]) -> str | None:
-        return FcodeCore.try_get_active_code_for_type(mtype)
-
-    def try_get_mcode_for_mcodeid(self, mcodeid: int) -> str | None:
-        for k, v in self._MCODE_TO_MCODEID.items():
-            if v == mcodeid:
-                return k
-        return None
-
-    def try_get_errcodeid_for_errtype(
-        self, errtype: type[Exception]
-    ) -> int | None:
-        errcode: str | None = \
-            FcodeCore.try_get_active_code_for_type(errtype)
-        if errcode:
-            errcodeid: int = self._ERRCODE_TO_ERRCODEID.get(errcode, -1)
-            assert errcodeid != -1, "must find mcodeid for mcode"
-            return errcodeid
-        return None
-
-    def  try_get_errcode_for_errtype(
-        self, errtype: type[Exception]
-    ) -> str | None:
-        return FcodeCore.try_get_active_code_for_type(errtype)

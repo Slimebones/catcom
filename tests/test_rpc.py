@@ -11,7 +11,7 @@ async def test_rpc():
         username = data["username"]
         email = data["email"]
         if username == "throw":
-            return Err(Exception())
+            return Err(Exception("hello"))
         assert username == "test_username"
         assert email == "test_email"
         return Ok(0)
@@ -44,14 +44,29 @@ async def test_rpc():
     assert rxcat_rpc_req_mcodeid >= 0
 
     ServerBus.register_rpc("update_email", update_email)
+
+    rpc_token = RandomUtils.makeid()
+    rpc_key = "update_email:" + rpc_token
     await conn_1.client__send({
         "msid": RandomUtils.makeid(),
         "mcodeid": rxcat_rpc_req_mcodeid,
-        "key": "update_email:" + RandomUtils.makeid(),
+        "key": rpc_key,
         "kwargs": {"username": "test_username", "email": "test_email"}
     })
-    client_data = await asyncio.wait_for(conn_1.client__recv(), 1)
-    print(client_data)
-    assert 0
+    rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
+    assert rpc_data["key"] == rpc_key
+    assert rpc_data["val"] == 0
+
+    rpc_token = RandomUtils.makeid()
+    rpc_key = "update_email:" + rpc_token
+    await conn_1.client__send({
+        "msid": RandomUtils.makeid(),
+        "mcodeid": rxcat_rpc_req_mcodeid,
+        "key": rpc_key,
+        "kwargs": {"username": "throw", "email": "test_email"}
+    })
+    rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
+    assert rpc_data["key"] == rpc_key
+    assert rpc_data["val"] == 0
 
     conn_task_1.cancel()
