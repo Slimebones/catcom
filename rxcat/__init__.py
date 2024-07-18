@@ -19,7 +19,6 @@ from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from inspect import isclass
 from typing import (
-    TYPE_CHECKING,
     Any,
     ClassVar,
     Coroutine,
