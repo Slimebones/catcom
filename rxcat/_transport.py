@@ -72,10 +72,10 @@ class Conn(Generic[TConnCore]):
     async def __anext__(self) -> dict:
         raise NotImplementedError
 
-    async def recv(self) -> bytes:
+    async def recv(self) -> dict:
         raise NotImplementedError
 
-    async def send(self, data: bytes):
+    async def send(self, data: dict):
         raise NotImplementedError
 
     async def close(self):

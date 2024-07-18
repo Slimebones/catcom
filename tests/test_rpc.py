@@ -34,13 +34,24 @@ async def test_rpc():
     conn_1 = MockConn(ConnArgs(
         core=None))
     conn_task_1 = asyncio.create_task(server_bus.conn(conn_1))
-    conn_2 = MockConn(ConnArgs(
-        core=None))
-    conn_task_2 = asyncio.create_task(server_bus.conn(conn_2))
+
+    welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rxcat_rpc_req_mcodeid = -1
+    for i, code_container in enumerate(welcome_rmsg["indexedMcodes"]):
+        if "rxcat_rpc_req" in code_container:
+            rxcat_rpc_req_mcodeid = i
+            break
+    assert rxcat_rpc_req_mcodeid >= 0
 
     ServerBus.register_rpc("update_email", update_email)
-    await conn_1.client__send_json(RpcReq(
-            key="update_email:" + RandomUtils.makeid(),
-            kwargs={"username": "test_username", "email": "test_email"}
-        ).model_dump())
-    await asyncio.wait_for(conn_1.recv(), 1)
+    await conn_1.client__send({
+        "msid": RandomUtils.makeid(),
+        "mcodeid": rxcat_rpc_req_mcodeid,
+        "key": "update_email:" + RandomUtils.makeid(),
+        "kwargs": {"username": "test_username", "email": "test_email"}
+    })
+    client_data = await asyncio.wait_for(conn_1.client__recv(), 1)
+    print(client_data)
+    assert 0
+
+    conn_task_1.cancel()

@@ -548,7 +548,12 @@ class ServerBus(Singleton):
                 await conn.close()
         atransport = typing.cast(ActiveTransport, atransport)
 
+        if conn.sid in self._sid_to_conn:
+            log.err(f"conn with such sid already active => skip")
+            return
+
         log.info(f"accept new conn {conn}", 2)
+        self._sid_to_conn[conn.sid] = conn
 
         try:
             if atransport.transport.server__register_process == "register_req":
@@ -596,10 +601,6 @@ class ServerBus(Singleton):
                 msg.tokens, msg.data)
             if isinstance(register_res, Err):
                 return register_res
-
-        # assign connsid only after receiving correct register req and
-        # approving of it by the resource server
-        self._sid_to_conn[conn.sid] = conn
 
         # TODO:
         #   send back register data for the client if register_res is Ok
@@ -940,6 +941,7 @@ class ServerBus(Singleton):
                                 f" {get_fully_qualified_name(err)}"
                                 " #stacktrace")
                             log.catch(err)
+                    continue
                 conn = self._sid_to_conn[connsid]
                 conn_type = type(conn)
                 # if we have conn in self._sid_to_conn, we must have transport

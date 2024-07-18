@@ -35,17 +35,14 @@ class MockConn(Conn[None]):
     async def recv(self) -> dict:
         return await self.inp_queue.get()
 
-    async def send_bytes(self, data: bytes):
-        return
-
     async def send(self, data: dict):
         await self.out_queue.put(data)
 
     async def close(self):
         return
 
-    async def client__send_json(self, data: dict):
+    async def client__send(self, data: dict):
         await self.inp_queue.put(data)
 
-    async def client__receive_json(self) -> dict:
-        return await self.inp_queue.get()
+    async def client__recv(self) -> dict:
+        return await self.out_queue.get()
