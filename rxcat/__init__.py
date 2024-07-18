@@ -13,7 +13,7 @@ import asyncio
 import contextlib
 import functools
 import typing
-from asyncio import Queue, Task
+from asyncio import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from inspect import isclass
@@ -25,7 +25,6 @@ from typing import (
     runtime_checkable,
 )
 
-from aiohttp import WSMessage
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValueErr
 from pykit.fcode import FcodeCore, code
@@ -49,10 +48,16 @@ from rxcat._msg import (
     TReq,
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
-from rxcat._transport import \
-    Transport, Conn, ConnArgs, OnRecvFn, OnSendFn, ActiveTransport
-from rxcat._ws import Ws
+from rxcat._transport import (
+    ActiveTransport,
+    Conn,
+    ConnArgs,
+    OnRecvFn,
+    OnSendFn,
+    Transport,
+)
 from rxcat._udp import Udp
+from rxcat._ws import Ws
 
 __all__ = [
     "ServerBus",
@@ -941,7 +946,7 @@ class ServerBus(Singleton):
                 conn_type = type(conn)
                 # if we have conn in self._sid_to_conn, we must have transport
                 if conn_type not in self._conn_type_to_atransport:
-                    log.err(f"broken state of conn_type_to_atransport => skip")
+                    log.err("broken state of conn_type_to_atransport => skip")
                     continue
                 atransport = self._conn_type_to_atransport[conn_type]
                 await atransport.inp_queue.put((conn, rmsg))

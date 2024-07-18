@@ -1,8 +1,10 @@
 from typing import Self
 
 from aiohttp import WSMsgType
-from rxcat._transport import Conn, ConnArgs, Transport
 from aiohttp.web import WebSocketResponse as AiohttpWebsocket
+
+from rxcat._transport import Conn, ConnArgs
+
 
 class Ws(Conn[AiohttpWebsocket]):
     def __init__(self, args: ConnArgs[AiohttpWebsocket]) -> None:
