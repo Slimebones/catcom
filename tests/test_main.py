@@ -1,7 +1,7 @@
 from pykit.check import check
 from pykit.err import ValueErr
 from pykit.fcode import code
-from pykit.res import Res
+from pykit.res import Res, eject
 from result import Err, Ok
 
 from rxcat import ErrEvt, Evt, Req, ServerBus
@@ -93,8 +93,7 @@ async def test_inner_pubsub(server_bus: ServerBus):
     assert is_msg2_arrived
 
 async def test_evt_serialization(server_bus: ServerBus) -> None:
-    msg1_mcodeid = CodeStorage.try_get_mcodeid_for_mtype(_Evt1)
-    assert msg1_mcodeid is not None
+    msg1_mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(_Evt1))
 
     m = _Evt1(num=1, rsid=None)
 

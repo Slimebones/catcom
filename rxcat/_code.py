@@ -85,14 +85,14 @@ class CodeStorage:
         return Err(NotFoundErr(f"errcode for errcodeid {errcodeid}"))
 
     @classmethod
-    def try_get_mcodeid_for_mtype(cls, mtype: type[Msg]) -> int | None:
+    def get_mcodeid_for_mtype(cls, mtype: type[Msg]) -> Res[int]:
         mcode: str | None = \
             FcodeCore.try_get_active_code_for_type(mtype)
         if mcode:
             mcodeid: int = cls.mcode_to_mcodeid.get(mcode, -1)
             assert mcodeid != -1, "must find mcodeid for mcode"
-            return mcodeid
-        return None
+            return Ok(mcodeid)
+        return Err(NotFoundErr(f"mcodeid for mtype {mtype}"))
 
     @classmethod
     def try_get_mcode_for_mtype(cls, mtype: type[Msg]) -> str | None:

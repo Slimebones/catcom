@@ -443,8 +443,7 @@ class ServerBus(Singleton):
         FcodeCore.deflock = True
 
         if self._initd_client_evt_mcodeid is None:
-            mcodeid = CodeStorage.try_get_mcodeid_for_mtype(InitdClientEvt)
-            assert mcodeid is not None
+            mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(InitdClientEvt))
             self._initd_client_evt_mcodeid = mcodeid
 
         if not self._preserialized_initd_client_evt:
@@ -859,8 +858,9 @@ class ServerBus(Singleton):
         msg: Msg,
         opts: PubOpts = PubOpts()
     ):
-        mcodeid: int | None = CodeStorage.try_get_mcodeid_for_mtype(mtype)
-        if mcodeid is not None and msg.m_target_connsids:
+        mcodeid_res = CodeStorage.get_mcodeid_for_mtype(mtype)
+        if isinstance(mcodeid_res, Ok) and msg.m_target_connsids:
+            mcodeid = mcodeid_res.ok_value
             rmsg = msg.serialize_json(mcodeid)
             for connsid in msg.m_target_connsids:
                 if connsid not in self._sid_to_conn:
