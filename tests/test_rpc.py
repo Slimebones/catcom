@@ -6,7 +6,7 @@ from pykit.rand import RandomUtils
 from pykit.res import Res, eject
 from result import Err, Ok
 
-from rxcat import ConnArgs, ServerBus, ServerBusCfg, Transport
+from rxcat import ConnArgs, ServerBus
 from tests.conftest import (
     MockConn,
     find_errcodeid_in_welcome_rmsg,
@@ -14,8 +14,8 @@ from tests.conftest import (
 )
 
 
-async def test_rpc(server_bus: ServerBus):
-    async def update_email(data: dict) -> Res[int]:
+async def test_main(server_bus: ServerBus):
+    async def srpc__update_email(data: dict) -> Res[int]:
         username = data["username"]
         email = data["email"]
         if username == "throw":
@@ -32,10 +32,10 @@ async def test_rpc(server_bus: ServerBus):
     rxcat_rpc_req_mcodeid = eject(find_mcodeid_in_welcome_rmsg(
         "rxcat_rpc_req", welcome_rmsg))
 
-    ServerBus.register_rpc("update_email", update_email)
+    eject(ServerBus.register_rpc(srpc__update_email))
 
     rpc_token = RandomUtils.makeid()
-    rpc_key = "update_email:" + rpc_token
+    rpc_key = "srpc__update_email:" + rpc_token
     await conn_1.client__send({
         "msid": RandomUtils.makeid(),
         "mcodeid": rxcat_rpc_req_mcodeid,
@@ -47,7 +47,7 @@ async def test_rpc(server_bus: ServerBus):
     assert rpc_data["val"] == 0
 
     rpc_token = RandomUtils.makeid()
-    rpc_key = "update_email:" + rpc_token
+    rpc_key = "srpc__update_email:" + rpc_token
     await conn_1.client__send({
         "msid": RandomUtils.makeid(),
         "mcodeid": rxcat_rpc_req_mcodeid,

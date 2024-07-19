@@ -7,7 +7,7 @@ from pykit.fcode import FcodeCore, code
 from pykit.res import Res
 from result import Err, Ok
 
-from rxcat import Conn, ConnArgs, ServerBus, ServerBusCfg, Transport, Req, Evt
+from rxcat import Conn, ConnArgs, Evt, Req, ServerBus, ServerBusCfg, Transport
 
 
 @code("rxcat_mock_evt_1")

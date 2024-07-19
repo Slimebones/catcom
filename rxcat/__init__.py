@@ -76,7 +76,7 @@ __all__ = [
     "RpcReq",
     "RpcEvt",
     "RpcFn",
-    "server_rpc",
+    "srpc",
 
     "Conn",
     "ConnArgs",
@@ -90,9 +90,9 @@ __all__ = [
 ]
 
 # placed here and not at _rpc.py to avoid circulars
-def server_rpc(code: str):
+def srpc():
     def inner(target: TRpcFn) -> TRpcFn:
-        ServerBus.register_rpc(code, target)
+        ServerBus.register_rpc(target)
         return target
     return inner
 
@@ -340,11 +340,17 @@ class ServerBus(Singleton):
         return self._is_initd
 
     @classmethod
-    def register_rpc(cls, code: str, fn: RpcFn):
+    def register_rpc(cls, fn: RpcFn) -> Res[None]:
+        """
+        Registers server rpc (srpc).
+        """
+        code = fn.__name__ # type: ignore
         if code in cls._code_to_rpcfn:
-            log.err(f"rpc code {code} is already registered => skip")
-            return
+            return Err(ValErr(f"rpc code {code} is already registered"))
+        if not code.startswith("srpc__"):
+            return Err(ValErr(f"code {code} must start with \"srpc__\""))
         cls._code_to_rpcfn[code] = fn
+        return Ok(None)
 
     def _checkthrow_norpc_msg(self, msg: Msg | type[Msg], ctx: str):
         """
@@ -467,6 +473,8 @@ class ServerBus(Singleton):
         for atransport in bus._conn_type_to_atransport.values(): # noqa: SLF001
             atransport.inp_queue_processor.cancel()
             atransport.out_queue_processor.cancel()
+
+        cls._code_to_rpcfn.clear()
 
         ServerBus.try_discard()
 

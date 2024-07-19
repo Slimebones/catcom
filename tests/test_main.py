@@ -1,10 +1,9 @@
 from pykit.check import check
 from pykit.err import ValueErr
-from pykit.fcode import code
 from pykit.res import Res, eject
 from result import Err, Ok
 
-from rxcat import ErrEvt, Evt, Req, ServerBus
+from rxcat import ErrEvt, ServerBus
 from rxcat._code import CodeStorage
 from tests.conftest import MockEvt_1, MockEvt_2, MockReq_1, MockReq_2
 
