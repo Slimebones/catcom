@@ -45,6 +45,14 @@ class Msg(BaseModel):
         assert self.msid
         return hash(self.msid)
 
+    @property
+    def connsid(self) -> str | None:
+        return self.skipnet__connsid
+
+    @property
+    def target_connsids(self) -> list[str]:
+        return self.skipnet__target_connsids.copy()
+
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
     def serialize_for_net(self, mcodeid: int) -> dict:

@@ -50,7 +50,7 @@ from rxcat._msg import (
     TReq,
     WelcomeEvt,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcReq, TRpcFn, SrpcReq, SrpcEvt
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcReq, TRpcFn
 from rxcat._transport import (
     ActiveTransport,
     Conn,

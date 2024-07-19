@@ -2,12 +2,25 @@ import asyncio
 
 from pykit.rand import RandomUtils
 from pykit.res import Res, eject
-import pytest
 from result import Ok
 
-from rxcat import ConnArgs, EmptyRpcArgs, ServerBus, ServerBusCfg, SrpcReq, OkEvt, Transport, SrpcEvt
+from rxcat import (
+    ConnArgs,
+    EmptyRpcArgs,
+    OkEvt,
+    ServerBus,
+    ServerBusCfg,
+    SrpcEvt,
+    SrpcReq,
+    Transport,
+)
 from rxcat._code import CodeStorage
-from tests.conftest import MockConn, MockCtxManager, MockReq_1, get_mock_ctx_manager_for_msg, rxcat_mock_ctx
+from tests.conftest import (
+    MockConn,
+    MockReq_1,
+    get_mock_ctx_manager_for_msg,
+    rxcat_mock_ctx,
+)
 
 
 async def test_subfn(server_bus: ServerBus):

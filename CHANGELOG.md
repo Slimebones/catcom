@@ -22,6 +22,7 @@
 - make officially public ErrEvt.skipnet__err which holds the original err object
 - renamed SubAction to SubFn; renamed PubAction to PubFn
 - added sub and rpc custom context managers support
+- added Msg.connsid and Msg.target_connsids properties
 
 # 0.2.3
 
