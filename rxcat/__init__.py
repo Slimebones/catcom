@@ -648,6 +648,9 @@ class ServerBus(Singleton):
                 f"rpcfn on req {req} returned non-res val {res} => skip")
             return
 
+        # val must be any serializable by pydantic object, so here we pass it
+        # directly as field of SrpcEvt, which will do serialization
+        # automatically under the hood
         evt = SrpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
         await self._pub_to_net(type(evt), evt)
 

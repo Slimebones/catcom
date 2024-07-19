@@ -34,7 +34,8 @@ class SrpcEvt(Evt):
     key: str
     val: Any
     """
-    Returned value can be anything parseable, including exceptions.
+    Returned value can be anything serializable or an exception, which will
+    be serialized to ErrDto.
     """
 
 class RpcFn(Protocol):
