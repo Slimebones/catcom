@@ -36,7 +36,7 @@ async def auto():
     await ServerBus.destroy()
 
 @pytest_asyncio.fixture
-async def server_bus(cfg: ServerBusCfg | None = None) -> ServerBus:
+async def server_bus() -> ServerBus:
     bus = ServerBus.ie()
     cfg = ServerBusCfg(
         transports=[
