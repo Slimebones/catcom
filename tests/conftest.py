@@ -3,12 +3,28 @@ from typing import Self
 
 import pytest_asyncio
 from pykit.err import ValErr
-from pykit.fcode import FcodeCore
+from pykit.fcode import FcodeCore, code
 from pykit.res import Res
 from result import Err, Ok
 
-from rxcat import Conn, ConnArgs, ServerBus, ServerBusCfg, Transport
+from rxcat import Conn, ConnArgs, ServerBus, ServerBusCfg, Transport, Req, Evt
 
+
+@code("rxcat_mock_evt_1")
+class MockEvt_1(Evt):
+    num: int
+
+@code("rxcat_mock_evt_2")
+class MockEvt_2(Evt):
+    num: int
+
+@code("rxcat_mock_req_1")
+class MockReq_1(Req):
+    num: int
+
+@code("rxcat_mock_req_2")
+class MockReq_2(Req):
+    num: int
 
 @pytest_asyncio.fixture(autouse=True)
 async def auto():

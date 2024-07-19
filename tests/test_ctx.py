@@ -2,27 +2,22 @@ import asyncio
 
 from pykit.rand import RandomUtils
 from rxcat import ServerBus, Req, ConnArgs
+from pykit.res import eject
 from rxcat._code import CodeStorage
-from pykit.fcode import code
-from tests.conftest import MockConn
+from pykit.fcode import FcodeCore, code
+from tests.conftest import MockConn, MockReq_1
 
 
 async def test_subaction(server_bus: ServerBus):
-    @code("test_ctx_test_subaction_req")
-    class TestReq(Req):
-        pass
-
-    async def f(req: TestReq):
-        print(server_bus.get_ctx())
-        from rxcat import _rxcat_ctx
-        print(_rxcat_ctx.get())
-
-    await server_bus.sub(TestReq, f)
     conn = MockConn(ConnArgs(core=None))
+    async def f(req: MockReq_1):
+        assert server_bus.get_ctx()["connsid"] == conn.sid
+
+    await server_bus.sub(MockReq_1, f)
     conn_task = asyncio.create_task(server_bus.conn(conn))
     await conn.client__send({
         "msid": RandomUtils.makeid(),
-        "mcodeid": CodeStorage.get_mcodeid_for_mtype(type(TestReq))
+        "mcodeid": eject(CodeStorage.get_mcodeid_for_mtype(MockReq_1)),
+        "num": 1
     })
-    assert 0
     conn_task.cancel()
