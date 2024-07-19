@@ -27,7 +27,7 @@ async def test_res_returning(server_bus: ServerBus):
 
     async def on_err_evt(evt: ErrEvt):
         nonlocal is_err_evt_arrived
-        assert type(evt.inner__err) is ValueErr
+        assert type(evt.skipnet__err) is ValueErr
         assert evt.err.msg == "hello"
         is_err_evt_arrived = True
 
@@ -81,7 +81,7 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
 
     m = MockEvt_1(num=1, rsid=None)
 
-    sm = m.serialize_json(msg1_mcodeid)
+    sm = m.serialize_for_net(msg1_mcodeid)
 
     assert sm == {
         "msid": m.msid,
@@ -89,7 +89,7 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
         "num": m.num
     }
 
-    m_after = MockEvt_1.deserialize_json(sm)
+    m_after = MockEvt_1.deserialize_from_net(sm)
 
     assert m == m_after
 

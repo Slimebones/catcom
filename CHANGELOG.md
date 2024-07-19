@@ -12,6 +12,14 @@
 - added SEND/RECV callbacks defined as cfg.on_send and cfg.on_recv
 - added Rpc support
 - added support of multiple Transport layers and their Conn objects
+- added ErrDto.stacktrace
+- renamed InitdClientEvt to WelcomeEvt, changed the code to "rxcat__welcome_evt"
+- changed code "err-evt" to "rxcat__err_evt"
+- changed code "ok-evt" to "rxcat__ok_evt"
+- changed RegisterReq code to "rxcat__register_req"
+- renamed msg fields - all to snake case; introduce "skipnet__" prefix to not serialize field to the net
+- renamed Msg.serialize_json to Msg.serialize_for_net; renamed Msg.deserialize_json to Msg.deserialize_from_net
+- make officially public ErrEvt.skipnet__err which holds the original err object
 
 # 0.2.3
 

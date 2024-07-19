@@ -41,13 +41,14 @@ from rxcat._err import ErrDto
 from rxcat._msg import (
     ErrEvt,
     Evt,
-    InitdClientEvt,
+    WelcomeEvt,
     Msg,
     OkEvt,
     Req,
     TEvt,
     TMsg,
     TReq,
+    RegisterReq
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
 from rxcat._transport import (
@@ -125,13 +126,13 @@ class RegisterFn(Protocol):
         tokens: list[str],
         client_data: dict[str, Any] | None) -> Res[ServerRegisterData]: ...
 
-class internal_InvokedActionUnhandledErr(Exception):
+class internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
         super().__init__(
             f"invoked {action} unhandled err: {err!r}"
         )
 
-class internal_BusUnhandledErr(Exception):
+class internal__BusUnhandledErr(Exception):
     def __init__(self, err: Exception):
         super().__init__(
             f"bus unhandled err: {err}"
@@ -167,22 +168,6 @@ class SubOpts(BaseModel):
     filters: list[MsgFilter] = []
     """
     All filters should succeed before msg being passed to a subscriber.
-    """
-
-@code("rxcat_register_req")
-class RegisterReq(Req):
-    tokens: list[str]
-    """
-    Client's list of token to manage signed connection.
-
-    Can be empty. The bus does not decide how to operate over the client's
-    connection based on tokens, the resource server does, to which these
-    tokens are passed.
-    """
-
-    data: dict[str, Any] | None = None
-    """
-    Extra client data passed to the resource server.
     """
 
 class _SubAction(BaseModel):
@@ -423,16 +408,16 @@ class ServerBus(Singleton):
         final_to_connsids = []
         if m_to_connsids is not None:
             final_to_connsids = m_to_connsids
-        elif triggered_msg and triggered_msg.m_connsid is not None:
-            final_to_connsids = [triggered_msg.m_connsid]
+        elif triggered_msg and triggered_msg.skipnet__connsid is not None:
+            final_to_connsids = [triggered_msg.skipnet__connsid]
 
         evt = ErrEvt(
             err=ErrDto.create(
                 err, CodeStorage.try_get_errcodeid_for_errtype(type(err))),
-            inner__err=err,
+            skipnet__err=err,
             rsid=rsid,
-            m_target_connsids=final_to_connsids,
-            inner__is_thrown_by_pubaction=is_thrown_by_pubaction
+            skipnet__target_connsids=final_to_connsids,
+            internal__is_thrown_by_pubaction=is_thrown_by_pubaction
         )
 
         log.err(f"thrown err evt: {evt}", 1)
@@ -449,15 +434,15 @@ class ServerBus(Singleton):
         FcodeCore.deflock = True
 
         if self._initd_client_evt_mcodeid is None:
-            mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(InitdClientEvt))
+            mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(WelcomeEvt))
             self._initd_client_evt_mcodeid = mcodeid
 
         if not self._preserialized_initd_client_evt:
-            self._preserialized_initd_client_evt = InitdClientEvt(
-                indexedMcodes=CodeStorage.indexed_mcodes,
-                indexedErrcodes=CodeStorage.indexed_errcodes,
+            self._preserialized_initd_client_evt = WelcomeEvt(
+                indexed_mcodes=CodeStorage.indexed_mcodes,
+                indexed_errcodes=CodeStorage.indexed_errcodes,
                 rsid=None
-            ).serialize_json(self._initd_client_evt_mcodeid)
+            ).serialize_for_net(self._initd_client_evt_mcodeid)
         self._is_post_initd = True
 
     @classmethod
@@ -688,7 +673,7 @@ class ServerBus(Singleton):
         t = typing.cast(type[Msg], t)
         rmsg["m_connsid"] = conn.sid
         try:
-            msg = t.deserialize_json(rmsg)
+            msg = t.deserialize_from_net(rmsg)
         except Exception as err:
             log.err_or_catch(err, 2)
             return None
@@ -799,7 +784,7 @@ class ServerBus(Singleton):
             isinstance(pointer.target, ErrEvt)
             and not opts.pubr_must_ignore_err_evt
         ):
-            final_err = pointer.target.inner__err
+            final_err = pointer.target.skipnet__err
             if not final_err:
                 log.warn(
                     f"on pubr got err evt {pointer.target} without"
@@ -867,10 +852,10 @@ class ServerBus(Singleton):
         opts: PubOpts = PubOpts()
     ):
         mcodeid_res = CodeStorage.get_mcodeid_for_mtype(mtype)
-        if isinstance(mcodeid_res, Ok) and msg.m_target_connsids:
+        if isinstance(mcodeid_res, Ok) and msg.skipnet__target_connsids:
             mcodeid = mcodeid_res.ok_value
-            rmsg = msg.serialize_json(mcodeid)
-            for connsid in msg.m_target_connsids:
+            rmsg = msg.serialize_for_net(mcodeid)
+            for connsid in msg.skipnet__target_connsids:
                 if connsid not in self._sid_to_conn:
                     log.err(
                         f"no conn with id {connsid} for msg {msg}"
@@ -905,7 +890,7 @@ class ServerBus(Singleton):
             None
         )
 
-        if isinstance(evt, ErrEvt) and evt.inner__is_thrown_by_pubaction:
+        if isinstance(evt, ErrEvt) and evt.internal__is_thrown_by_pubaction:
             # skip pubaction errs to avoid infinite msg loop
             return
 
@@ -937,19 +922,19 @@ class ServerBus(Singleton):
             await self.throw(
                 err,
                 evt,
-                m_to_connsids=req.m_target_connsids,
+                m_to_connsids=req.skipnet__target_connsids,
                 is_thrown_by_pubaction=True
             )
             f = False
-        if not evt.m_isContinious:
+        if not evt.skipnet__is_continious:
             self._try_del_pubaction(req.msid)
         return f
 
     def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
         ctx_dict = _rxcat_ctx.get().copy()
 
-        if msg.m_connsid:
-            ctx_dict["connsid"] = msg.m_connsid
+        if msg.skipnet__connsid:
+            ctx_dict["connsid"] = msg.skipnet__connsid
 
         return ctx_dict
 

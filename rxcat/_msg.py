@@ -1,4 +1,4 @@
-from typing import Self, TypeVar
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel
 from pykit.fcode import code
@@ -14,11 +14,13 @@ class Msg(BaseModel):
 
     Note that any field set to None won't be serialized.
 
+    Fields prefixed with "skipnet__" won't pass net serialization process.
+
     @abs
     """
     msid: str = ""
 
-    m_connsid: str | None = None
+    skipnet__connsid: str | None = None
     """
     From which conn the msg is originated.
 
@@ -26,7 +28,7 @@ class Msg(BaseModel):
     Otherwise it is always set to connsid.
     """
 
-    m_target_connsids: list[str] = []
+    skipnet__target_connsids: list[str] = []
     """
     To which connsids the published msg should be addressed.
     """
@@ -45,12 +47,12 @@ class Msg(BaseModel):
 
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
-    def serialize_json(self, mcodeid: int) -> dict:
+    def serialize_for_net(self, mcodeid: int) -> dict:
         res: dict = self.model_dump()
 
         # DEL SERVER MSG FIELDS
         #       we should do these before key deletion setup
-        if "m_connsid" in res and res["m_connsid"] is not None:
+        if "skipnet__connsid" in res and res["skipnet__connsid"] is not None:
             # connsids must exist only inside server bus, it's probably an err
             # if a msg is tried to be serialized with connsid, but we will
             # throw a warning for now, and ofcourse del the field
@@ -58,9 +60,6 @@ class Msg(BaseModel):
                 "connsids must exist only inside server bus, but it is tried"
                 f" to serialize msg {self} with connsid != None"
             )
-            del res["m_connsid"]
-        if "m_target_connsids" in res:
-            del res["m_target_connsids"]
 
         is_msid_found = False
         keys_to_del: list[str] = []
@@ -69,10 +68,10 @@ class Msg(BaseModel):
                 is_msid_found = True
                 continue
             # all inner keys are deleted from the final serialization
-            if k.startswith("inner__"):
-                keys_to_del.append(k)
-                continue
-            if v is None:
+            if (
+                    v is None
+                    or k.startswith("internal__")
+                    or k.startswith("skipnet__")):
                 keys_to_del.append(k)
 
         if not is_msid_found:
@@ -87,7 +86,7 @@ class Msg(BaseModel):
         return res
 
     @classmethod
-    def deserialize_json(cls, data: dict) -> Self:
+    def deserialize_from_net(cls, data: dict) -> Self:
         """Recovers model of this class using dictionary."""
 
         if "mcodeid" in data:
@@ -104,7 +103,7 @@ class Req(Msg):
     """
 
     def get_res_connsids(self) -> list[str]:
-        return [self.m_connsid] if self.m_connsid is not None else []
+        return [self.skipnet__connsid] if self.skipnet__connsid is not None else []
 
 class Evt(Msg):
     """
@@ -115,7 +114,7 @@ class Evt(Msg):
     In response to which request the event has been sent.
     """
 
-    m_isContinious: bool | None = None
+    skipnet__is_continious: bool | None = None
     """
     Whether receiving bus should delete pubaction entry after call pubaction
     with this evt. If true, the entry is not deleted.
@@ -123,14 +122,14 @@ class Evt(Msg):
 
     def as_res_from_req(self, req: Req) -> Self:
         self.rsid = req.msid
-        self.m_target_connsids = req.get_res_connsids()
+        self.skipnet__target_connsids = req.get_res_connsids()
         return self
 
 TMsg = TypeVar("TMsg", bound=Msg)
 TEvt = TypeVar("TEvt", bound=Evt)
 TReq = TypeVar("TReq", bound=Req)
 
-@code("ok-evt")
+@code("rxcat__ok_evt")
 class OkEvt(Evt):
     """
     Confirm that a req processed successfully.
@@ -139,7 +138,7 @@ class OkEvt(Evt):
     it is too general.
     """
 
-@code("err-evt")
+@code("rxcat__err_evt")
 class ErrEvt(Evt):
     """
     Represents any err that can be thrown.
@@ -148,12 +147,12 @@ class ErrEvt(Evt):
     """
     err: ErrDto
 
-    inner__err: Exception | None = None
+    skipnet__err: Exception | None = None
     """
     Err that only exists on the inner bus and won't be serialized.
     """
 
-    inner__is_thrown_by_pubaction: bool | None = None
+    internal__is_thrown_by_pubaction: bool | None = None
     """
     Errs can be thrown by req-listening action or by req+evt listening
     pubaction.
@@ -167,24 +166,40 @@ class ErrEvt(Evt):
     evt, but won't disable the pubaction.
     """
 
-@code("initd-client-evt")
-class InitdClientEvt(Evt):
+@code("rxcat__welcome_evt")
+class WelcomeEvt(Evt):
     """
     Welcome evt sent to every connected client.
 
     Contains information required to survive in harsh rx environment.
     """
 
-    indexedMcodes: list[list[str]]
+    indexed_mcodes: list[list[str]]
     """
     Collection of active and legacy mcodes, indexed by their mcodeid,
     first mcode under each index's list is an active one.
     """
 
-    indexedErrcodes: list[list[str]]
+    indexed_errcodes: list[list[str]]
     """
     Collection of active and legacy errcodes, indexed by their
     errcodeid, first errcode under each index's list is an active one.
     """
 
     # ... here an additional info how to behave properly on the bus can be sent
+
+@code("rxcat__register_req")
+class RegisterReq(Req):
+    tokens: list[str]
+    """
+    Client's list of token to manage signed connection.
+
+    Can be empty. The bus does not decide how to operate over the client's
+    connection based on tokens, the resource server does, to which these
+    tokens are passed.
+    """
+
+    data: dict[str, Any] | None = None
+    """
+    Extra client data passed to the resource server.
+    """
