@@ -9,22 +9,28 @@ Rpc works only in network mode (client-server communication).
 """
 from typing import Any, Protocol, TypeVar
 
+from pydantic import BaseModel
 from pykit.fcode import code
 from pykit.res import Res
 
 from rxcat._msg import Evt, Req
 
 
-@code("rxcat_rpc_req")
-class RpcReq(Req):
+class EmptyRpcArgs(BaseModel):
+    """
+    When you need to use empty args for your rpc function.
+    """
+
+@code("rxcat__srpc_req")
+class SrpcReq(Req):
     key: str
-    kwargs: dict
+    args: dict
     """
     Any parseable kwargs passed to rpc fn.
     """
 
-@code("rxcat_rpc_evt")
-class RpcEvt(Evt):
+@code("rxcat__srpc_evt")
+class SrpcEvt(Evt):
     key: str
     val: Any
     """
@@ -32,5 +38,15 @@ class RpcEvt(Evt):
     """
 
 class RpcFn(Protocol):
-    async def __call__(self, data: dict) -> Res[Any]: ...
+    """
+    Function that can be used as RPC endpoint.
+
+    Must accept data in form of validated pydantic model. Must return
+    serializable object.
+    """
+    # it's not "data: BaseModel" since we haven't yet found how to allow it
+    # to accept any instance of BaseModel
+    #
+    # ...and we don't want to use generics here, for now
+    async def __call__(self, args: Any) -> Res[Any]: ...
 TRpcFn = TypeVar("TRpcFn", bound=RpcFn)

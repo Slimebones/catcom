@@ -16,7 +16,7 @@ import typing
 from asyncio import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from inspect import isclass
+from inspect import isclass, signature
 from typing import (
     Any,
     ClassVar,
@@ -50,7 +50,7 @@ from rxcat._msg import (
     TReq,
     WelcomeEvt,
 )
-from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcReq, TRpcFn
 from rxcat._transport import (
     ActiveTransport,
     Conn,
@@ -74,10 +74,9 @@ __all__ = [
     "ErrEvt",
     "OkEvt",
 
-    "RpcReq",
-    "RpcEvt",
     "RpcFn",
     "srpc",
+    "EmptyRpcArgs",
 
     "Conn",
     "ConnArgs",
@@ -217,7 +216,7 @@ class ServerBusCfg(BaseModel):
     """
 
     subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
-    rpc_ctxfn: Callable[[RpcReq], Awaitable[CtxManager]] | None = None
+    rpc_ctxfn: Callable[[SrpcReq], Awaitable[CtxManager]] | None = None
 
     are_errs_catchlogged: bool = False
     """
@@ -231,7 +230,7 @@ class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
     """
-    _code_to_rpcfn: ClassVar[dict[str, RpcFn]] = {}
+    _code_to_rpcfn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
     DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
         is_server=True,
         conn_type=Ws,
@@ -330,11 +329,29 @@ class ServerBus(Singleton):
         Registers server rpc (srpc).
         """
         code = fn.__name__ # type: ignore
+
         if code in cls._code_to_rpcfn:
             return Err(ValErr(f"rpc code {code} is already registered"))
         if not code.startswith("srpc__"):
             return Err(ValErr(f"code {code} must start with \"srpc__\""))
-        cls._code_to_rpcfn[code] = fn
+
+        sig = signature(fn)
+        sig_param = sig.parameters.get("args")
+        if not sig_param:
+            return Err(ValErr(
+                f"rpc fn {fn} with code {code} must accept"
+                " \"args: AnyBaseModel\" as it's sole argument"))
+        args_type = sig_param.annotation
+        if args_type is BaseModel:
+            return Err(ValErr(
+                f"rpc fn {fn} with code {code} cannot declare BaseModel"
+                " as it's direct args type"))
+        if not issubclass(args_type, BaseModel):
+            return Err(ValErr(
+                f"rpc fn {fn} with code {code} must accept args in form"
+                f" of BaseModel, got {args_type}"))
+
+        cls._code_to_rpcfn[code] = (fn, args_type)
         return Ok(None)
 
     def _checkthrow_norpc_msg(self, msg: Msg | type[Msg], ctx: str):
@@ -345,10 +362,11 @@ class ServerBus(Singleton):
         iscls = isclass(msg)
         if (
             (
-                iscls and (issubclass(msg, RpcReq) or issubclass(msg, RpcEvt)))
+                iscls
+                and (issubclass(msg, SrpcReq) or issubclass(msg, SrpcEvt)))
             or (
-                not iscls and (
-                    isinstance(msg, (RpcEvt, RpcReq))))):
+                not iscls
+                and (isinstance(msg, (SrpcEvt, SrpcReq))))):
             raise ValErr(
                 f"msg {msg} in context of \"{ctx}\" cannot be associated with"
                 " rpc")
@@ -570,12 +588,12 @@ class ServerBus(Singleton):
     async def _accept_net_msg(self, msg: Msg | None):
         if msg is None:
             return
-        elif isinstance(msg, RpcEvt):
+        elif isinstance(msg, SrpcEvt):
             log.err(
                 f"server bus won't accept RpcEvt messages, got {msg}"
                 " => skip")
             return
-        elif isinstance(msg, RpcReq):
+        elif isinstance(msg, SrpcReq):
             # process rpc in a separate task to not block inp queue
             # processing
             task = asyncio.create_task(self._call_rpc(msg))
@@ -585,12 +603,12 @@ class ServerBus(Singleton):
         # publish to inner bus with no duplicate net resending
         await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
-    async def _call_rpc(self, req: RpcReq):
+    async def _call_rpc(self, req: SrpcReq):
         code, _ = req.key.split(":")
         if code not in self._code_to_rpcfn:
             log.err(f"no such rpc code {code} for req {req} => skip")
             return
-        fn = self._code_to_rpcfn[code]
+        fn, args_type = self._code_to_rpcfn[code]
 
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(req))
 
@@ -607,9 +625,9 @@ class ServerBus(Singleton):
         try:
             if ctx_manager:
                 async with ctx_manager:
-                    res = await fn(req.kwargs)
+                    res = await fn(args_type.model_validate(req.args))
             else:
-                res = await fn(req.kwargs)
+                res = await fn(args_type.model_validate(req.args))
         except Exception as err:
             log.warn(
                 f"unhandled exception occured for rpcfn on req {req}"
@@ -630,7 +648,7 @@ class ServerBus(Singleton):
                 f"rpcfn on req {req} returned non-res val {res} => skip")
             return
 
-        evt = RpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
+        evt = SrpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
         await self._pub_to_net(type(evt), evt)
 
     async def parse_rmsg(

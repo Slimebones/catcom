@@ -1,5 +1,6 @@
 import asyncio
 
+from pydantic import BaseModel
 from pykit.err import ValErr
 from pykit.obj import get_fully_qualified_name
 from pykit.rand import RandomUtils
@@ -15,9 +16,12 @@ from tests.conftest import (
 
 
 async def test_main(server_bus: ServerBus):
-    async def srpc__update_email(data: dict) -> Res[int]:
-        username = data["username"]
-        email = data["email"]
+    class UpdateEmailArgs(BaseModel):
+        username: str
+        email: str
+    async def srpc__update_email(args: UpdateEmailArgs) -> Res[int]:
+        username = args.username
+        email = args.email
         if username == "throw":
             return Err(ValErr("hello"))
         assert username == "test_username"
@@ -30,7 +34,7 @@ async def test_main(server_bus: ServerBus):
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
     rxcat_rpc_req_mcodeid = eject(find_mcodeid_in_welcome_rmsg(
-        "rxcat_rpc_req", welcome_rmsg))
+        "rxcat__srpc_req", welcome_rmsg))
 
     eject(ServerBus.register_rpc(srpc__update_email))
 
@@ -40,7 +44,7 @@ async def test_main(server_bus: ServerBus):
         "msid": RandomUtils.makeid(),
         "mcodeid": rxcat_rpc_req_mcodeid,
         "key": rpc_key,
-        "kwargs": {"username": "test_username", "email": "test_email"}
+        "args": {"username": "test_username", "email": "test_email"}
     })
     rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
     assert rpc_data["key"] == rpc_key
@@ -52,7 +56,7 @@ async def test_main(server_bus: ServerBus):
         "msid": RandomUtils.makeid(),
         "mcodeid": rxcat_rpc_req_mcodeid,
         "key": rpc_key,
-        "kwargs": {"username": "throw", "email": "test_email"}
+        "args": {"username": "throw", "email": "test_email"}
     })
     rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
     assert rpc_data["key"] == rpc_key
