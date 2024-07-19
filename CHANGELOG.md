@@ -21,6 +21,7 @@
 - renamed Msg.serialize_json to Msg.serialize_for_net; renamed Msg.deserialize_json to Msg.deserialize_from_net
 - make officially public ErrEvt.skipnet__err which holds the original err object
 - renamed SubAction to SubFn; renamed PubAction to PubFn
+- added sub and rpc custom context managers support
 
 # 0.2.3
 

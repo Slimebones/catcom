@@ -50,7 +50,7 @@ from rxcat._msg import (
     TReq,
     WelcomeEvt,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcReq, TRpcFn
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcReq, TRpcFn, SrpcReq, SrpcEvt
 from rxcat._transport import (
     ActiveTransport,
     Conn,
@@ -75,6 +75,9 @@ __all__ = [
     "OkEvt",
 
     "RpcFn",
+    # req and evt needed mostly for typehinting, e.g. for ctx manager functions
+    "SrpcReq",
+    "SrpcEvt",
     "srpc",
     "EmptyRpcArgs",
 
@@ -182,7 +185,7 @@ class _SubFn(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-_rxcat_ctx = ContextVar("rxcat_ctx", default={})
+_rxcat_ctx = ContextVar("rxcat", default={})
 PubFn = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
 
 @runtime_checkable
@@ -215,7 +218,7 @@ class ServerBusCfg(BaseModel):
     RegisterReq, but no alternative function will be called.
     """
 
-    subfn_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
+    sub_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[SrpcReq], Awaitable[CtxManager]] | None = None
 
     are_errs_catchlogged: bool = False
@@ -962,8 +965,8 @@ class ServerBus(Singleton):
     async def _call_subfn(self, subfn: _SubFn, msg: Msg):
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
-        if self._cfg.subfn_ctxfn is not None:
-            ctx_manager = await self._cfg.subfn_ctxfn(msg)
+        if self._cfg.sub_ctxfn is not None:
+            ctx_manager = await self._cfg.sub_ctxfn(msg)
             async with ctx_manager:
                 res = await subfn.subscriber(msg)
         else:

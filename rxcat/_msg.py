@@ -138,6 +138,13 @@ class OkEvt(Evt):
     it is too general.
     """
 
+    @classmethod
+    def create(cls, req: Req) -> Self:
+        """
+        Convenience method to create OkEvt in response to a request.
+        """
+        return cls(rsid="").as_res_from_req(req)
+
 @code("rxcat__err_evt")
 class ErrEvt(Evt):
     """
