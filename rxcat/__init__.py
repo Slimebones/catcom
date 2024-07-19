@@ -169,7 +169,7 @@ class SubOpts(BaseModel):
     All filters should succeed before msg being passed to a subscriber.
     """
 
-class _SubAction(BaseModel):
+class _SubFn(BaseModel):
     sid: str
     subscriber: Subscriber
     opts: SubOpts
@@ -183,7 +183,7 @@ class _SubAction(BaseModel):
         arbitrary_types_allowed = True
 
 _rxcat_ctx = ContextVar("rxcat_ctx", default={})
-PubAction = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
+PubFn = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
 
 @runtime_checkable
 class CtxManager(Protocol):
@@ -215,7 +215,7 @@ class ServerBusCfg(BaseModel):
     RegisterReq, but no alternative function will be called.
     """
 
-    subaction_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
+    subfn_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[SrpcReq], Awaitable[CtxManager]] | None = None
 
     are_errs_catchlogged: bool = False
@@ -262,16 +262,16 @@ class ServerBus(Singleton):
         self._sid_to_conn: dict[str, Conn] = {}
 
         self._subsid_to_mtype: dict[str, type[Msg]] = {}
-        self._subsid_to_subaction: dict[str, _SubAction] = {}
-        self._mtype_to_subactions: \
-            dict[type[Msg], list[_SubAction]] = {}
+        self._subsid_to_subfn: dict[str, _SubFn] = {}
+        self._mtype_to_subfns: \
+            dict[type[Msg], list[_SubFn]] = {}
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
         self._preserialized_initd_client_evt: dict = {}
         self._initd_client_evt_mcodeid: int | None = None
 
-        self._rsid_to_req_and_pubaction: dict[str, tuple[Req, PubAction]] = {}
-        self._rsids_to_del_on_next_pubaction: set[str] = set()
+        self._rsid_to_req_and_pubfn: dict[str, tuple[Req, PubFn]] = {}
+        self._rsids_to_del_on_next_pubfn: set[str] = set()
 
         self._is_initd = True
         self._is_post_initd = False
@@ -378,7 +378,7 @@ class ServerBus(Singleton):
         pub_opts: PubOpts = PubOpts(),
         *,
         m_to_connsids: list[str] | None = None,
-        is_thrown_by_pubaction: bool | None = None
+        is_thrown_by_pubfn: bool | None = None
     ):
         """
         Pubs ThrownErrEvt.
@@ -435,7 +435,7 @@ class ServerBus(Singleton):
             skipnet__err=err,
             rsid=rsid,
             skipnet__target_connsids=final_to_connsids,
-            internal__is_thrown_by_pubaction=is_thrown_by_pubaction
+            internal__is_thrown_by_pubfn=is_thrown_by_pubfn
         )
 
         log.err(f"thrown err evt: {evt}", 1)
@@ -725,19 +725,19 @@ class ServerBus(Singleton):
         """
         self._checkthrow_norpc_msg(mtype, "subscription")
         subsid = RandomUtils.makeid()
-        subaction = _SubAction(
+        subfn = _SubFn(
             sid=subsid, subscriber=typing.cast(Callable, action), opts=opts)
 
-        if mtype not in self._mtype_to_subactions:
-            self._mtype_to_subactions[mtype] = []
-        self._mtype_to_subactions[mtype].append(subaction)
-        self._subsid_to_subaction[subsid] = subaction
+        if mtype not in self._mtype_to_subfns:
+            self._mtype_to_subfns[mtype] = []
+        self._mtype_to_subfns[mtype].append(subfn)
+        self._subsid_to_subfn[subsid] = subfn
         self._subsid_to_mtype[subsid] = mtype
 
         if opts.must_receive_last_msg and mtype in self._type_to_last_msg:
             last_msg = self._type_to_last_msg[mtype]
-            await self._try_call_subaction(
-                subaction,
+            await self._try_call_subfn(
+                subfn,
                 last_msg
             )
 
@@ -747,15 +747,15 @@ class ServerBus(Singleton):
         if subsid not in self._subsid_to_mtype:
             return Err(ValErr(f"sub with id {subsid} not found"))
 
-        assert self._subsid_to_mtype[subsid] in self._mtype_to_subactions
+        assert self._subsid_to_mtype[subsid] in self._mtype_to_subfns
 
         msg_type = self._subsid_to_mtype[subsid]
 
         assert subsid in self._subsid_to_mtype, "all maps must be synced"
-        assert subsid in self._subsid_to_subaction, "all maps must be synced"
+        assert subsid in self._subsid_to_subfn, "all maps must be synced"
         del self._subsid_to_mtype[subsid]
-        del self._subsid_to_subaction[subsid]
-        del self._mtype_to_subactions[msg_type]
+        del self._subsid_to_subfn[subsid]
+        del self._mtype_to_subfns[msg_type]
         return Ok(None)
 
     async def unsub_many(
@@ -777,14 +777,14 @@ class ServerBus(Singleton):
         pointer = Pointer(target=Evt(rsid=""))
 
         def wrapper(aevt: asyncio.Event, evtf_pointer: Pointer[Evt]):
-            async def pubaction(_, evt: Evt):
+            async def pubfn(_, evt: Evt):
                 aevt.set()
                 # set if even ErrEvt is returned. It will be handled outside
                 # this wrapper, or ignored to be returned to the caller,
                 # if opts.pubr_must_ignore_err_evt is given.
                 evtf_pointer.target = evt
 
-            return pubaction
+            return pubfn
 
         await self.pub(
             req,
@@ -799,7 +799,7 @@ class ServerBus(Singleton):
         assert \
             type(pointer.target) is not Evt, \
             "usage of base evt class detected," \
-                " or probably pubr pubaction worked incorrectly"
+                " or probably pubr pubfn worked incorrectly"
 
         if (
             isinstance(pointer.target, ErrEvt)
@@ -820,20 +820,20 @@ class ServerBus(Singleton):
     async def pub(
         self,
         msg: Msg,
-        pubaction: PubAction | None = None,
+        pubfn: PubFn | None = None,
         opts: PubOpts = PubOpts(),
     ):
         self._checkthrow_norpc_msg(msg, "publication")
-        if pubaction is not None and not isinstance(msg, Req):
-            raise InpErr(f"for defined pubaction, {msg} should be req")
+        if pubfn is not None and not isinstance(msg, Req):
+            raise InpErr(f"for defined pubfn, {msg} should be req")
 
         if (
             isinstance(msg, Req)
-            and pubaction is not None
+            and pubfn is not None
         ):
-            if msg.msid in self._rsid_to_req_and_pubaction:
+            if msg.msid in self._rsid_to_req_and_pubfn:
                 raise AlreadyProcessedErr(f"{msg} for pubr")
-            self._rsid_to_req_and_pubaction[msg.msid] = (msg, pubaction)
+            self._rsid_to_req_and_pubfn[msg.msid] = (msg, pubfn)
 
         mtype = type(msg)
         self._type_to_last_msg[mtype] = msg
@@ -841,30 +841,30 @@ class ServerBus(Singleton):
         # SEND ORDER
         #
         #   1. Net (only if has mcodeid and this is in the required list)
-        #   2. Inner (always for every registered subaction)
+        #   2. Inner (always for every registered subfn)
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.must_send_to_net:
             await self._pub_to_net(mtype, msg, opts)
 
-        if opts.must_send_to_inner and mtype in self._mtype_to_subactions:
+        if opts.must_send_to_inner and mtype in self._mtype_to_subfns:
             await self._send_to_inner_bus(mtype, msg)
 
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
 
     async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
-        subactions = self._mtype_to_subactions[mtype]
-        if not subactions:
+        subfns = self._mtype_to_subfns[mtype]
+        if not subfns:
             await self.throw(ValErr(
-                f"no subactions for msg type {mtype}"))
-        removing_subaction_sids = []
-        for subaction in subactions:
-            await self._try_call_subaction(subaction, msg)
-            if subaction.is_removing:
-                removing_subaction_sids.append(subaction.sid)
-        for removing_subaction_sid in removing_subaction_sids:
-            (await self.unsub(removing_subaction_sid)).unwrap_or(None)
+                f"no subfns for msg type {mtype}"))
+        removing_subfn_sids = []
+        for subfn in subfns:
+            await self._try_call_subfn(subfn, msg)
+            if subfn.is_removing:
+                removing_subfn_sids.append(subfn.sid)
+        for removing_subfn_sid in removing_subfn_sids:
+            (await self.unsub(removing_subfn_sid)).unwrap_or(None)
 
     async def _pub_to_net(
         self,
@@ -906,49 +906,49 @@ class ServerBus(Singleton):
         if not evt.rsid:
             return
 
-        req_and_pubaction = self._rsid_to_req_and_pubaction.get(
+        req_and_pubfn = self._rsid_to_req_and_pubfn.get(
             evt.rsid,
             None
         )
 
-        if isinstance(evt, ErrEvt) and evt.internal__is_thrown_by_pubaction:
-            # skip pubaction errs to avoid infinite msg loop
+        if isinstance(evt, ErrEvt) and evt.internal__is_thrown_by_pubfn:
+            # skip pubfn errs to avoid infinite msg loop
             return
 
-        if req_and_pubaction is not None:
-            req = req_and_pubaction[0]
-            pubaction = req_and_pubaction[1]
-            await self._try_call_pubaction(pubaction, req, evt)
+        if req_and_pubfn is not None:
+            req = req_and_pubfn[0]
+            pubfn = req_and_pubfn[1]
+            await self._try_call_pubfn(pubfn, req, evt)
 
-    def _try_del_pubaction(self, rsid: str) -> bool:
-        if rsid not in self._rsid_to_req_and_pubaction:
+    def _try_del_pubfn(self, rsid: str) -> bool:
+        if rsid not in self._rsid_to_req_and_pubfn:
             return False
-        del self._rsid_to_req_and_pubaction[rsid]
+        del self._rsid_to_req_and_pubfn[rsid]
         return True
 
-    async def _try_call_pubaction(
+    async def _try_call_pubfn(
         self,
-        pubaction: PubAction,
+        pubfn: PubFn,
         req: Req,
         evt: Evt
     ) -> bool:
         f = True
         try:
-            res = await pubaction(req, evt)
+            res = await pubfn(req, evt)
             if isinstance(res, Err):
                 eject(res)
         except Exception as err:
             # technically, the msg which caused the err is evt, since on evt
-            # the pubaction is finally called
+            # the pubfn is finally called
             await self.throw(
                 err,
                 evt,
                 m_to_connsids=req.skipnet__target_connsids,
-                is_thrown_by_pubaction=True
+                is_thrown_by_pubfn=True
             )
             f = False
         if not evt.skipnet__is_continious:
-            self._try_del_pubaction(req.msid)
+            self._try_del_pubfn(req.msid)
         return f
 
     def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
@@ -959,15 +959,15 @@ class ServerBus(Singleton):
 
         return ctx_dict
 
-    async def _call_subaction(self, subaction: _SubAction, msg: Msg):
+    async def _call_subfn(self, subfn: _SubFn, msg: Msg):
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
-        if self._cfg.subaction_ctxfn is not None:
-            ctx_manager = await self._cfg.subaction_ctxfn(msg)
+        if self._cfg.subfn_ctxfn is not None:
+            ctx_manager = await self._cfg.subfn_ctxfn(msg)
             async with ctx_manager:
-                res = await subaction.subscriber(msg)
+                res = await subfn.subscriber(msg)
         else:
-            res = await subaction.subscriber(msg)
+            res = await subfn.subscriber(msg)
 
         if isinstance(res, (Err, Ok)):
             val = eject(res)
@@ -979,26 +979,26 @@ class ServerBus(Singleton):
                         await self.pub(m)
                         continue
                     log.err(
-                        f"subscriber #{subaction.sid} returned a list"
+                        f"subscriber #{subfn.sid} returned a list"
                         f" with a non-msg item: {m} => skip")
             elif val is not None:
                 log.err(
-                    f"subscriber #{subaction.sid} returned an unexpected"
+                    f"subscriber #{subfn.sid} returned an unexpected"
                     f" object within the result: {val} => skip")
 
-    async def _try_call_subaction(
+    async def _try_call_subfn(
         self,
-        subaction: _SubAction,
+        subfn: _SubFn,
         msg: Msg
     ) -> bool:
-        filters = subaction.opts.filters
+        filters = subfn.opts.filters
         for filter in filters:
             this_filter_f = await filter(msg)
             if not this_filter_f:
                 return False
 
         try:
-            await self._call_subaction(subaction, msg)
+            await self._call_subfn(subfn, msg)
         except Exception as err:
             if isinstance(msg, ErrEvt):
                 log.err(
@@ -1007,7 +1007,7 @@ class ServerBus(Singleton):
                     " but send this err further")
                 # but subscriber must be removed carefully, to
                 # not break outer iteration cycles
-                subaction.is_removing = True
+                subfn.is_removing = True
                 return False
             await self.throw(err, msg)
             return False

@@ -116,7 +116,7 @@ class Evt(Msg):
 
     skipnet__is_continious: bool | None = None
     """
-    Whether receiving bus should delete pubaction entry after call pubaction
+    Whether receiving bus should delete pubfn entry after call pubfn
     with this evt. If true, the entry is not deleted.
     """
 
@@ -152,18 +152,18 @@ class ErrEvt(Evt):
     Err that only exists on the inner bus and won't be serialized.
     """
 
-    internal__is_thrown_by_pubaction: bool | None = None
+    internal__is_thrown_by_pubfn: bool | None = None
     """
     Errs can be thrown by req-listening action or by req+evt listening
-    pubaction.
+    pubfn.
 
     In the second case, we should set this flag to True to avoid infinite
-    msg loop, where after pubaction fail, the err evt is generated with the
-    same req sid, and again is sent to the same pubaction which caused this
+    msg loop, where after pubfn fail, the err evt is generated with the
+    same req sid, and again is sent to the same pubfn which caused this
     err.
 
-    If this flag is set, the bus will prevent pubaction trigger, for this err
-    evt, but won't disable the pubaction.
+    If this flag is set, the bus will prevent pubfn trigger, for this err
+    evt, but won't disable the pubfn.
     """
 
 @code("rxcat__welcome_evt")

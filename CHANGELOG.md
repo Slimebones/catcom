@@ -6,8 +6,8 @@
 - added ServerBusCfg.are_errs_catchlogged which allows to catch+reraise thrown to the bus errs
 - removed ServerBusCfg.is_invoked_action_unhandled_errs_logged in favor of ServerBusCfg.are_errs_catchlogged
 - ServerBusCfg: renamed register -> register_fn
-- setup ContextVar for subaction subscriber call
-- added support for custom subaction context functions
+- setup ContextVar for subfn subscriber call
+- added support for custom subfn context functions
 - added ErrEvt.errtype which is set to fully qualified string representation of an error type
 - added SEND/RECV callbacks defined as cfg.on_send and cfg.on_recv
 - added Rpc support
@@ -20,6 +20,7 @@
 - renamed msg fields - all to snake case; introduce "skipnet__" prefix to not serialize field to the net
 - renamed Msg.serialize_json to Msg.serialize_for_net; renamed Msg.deserialize_json to Msg.deserialize_from_net
 - make officially public ErrEvt.skipnet__err which holds the original err object
+- renamed SubAction to SubFn; renamed PubAction to PubFn
 
 # 0.2.3
 

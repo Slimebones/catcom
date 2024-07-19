@@ -9,7 +9,7 @@ from rxcat._code import CodeStorage
 from tests.conftest import MockConn, MockReq_1
 
 
-async def test_subaction(server_bus: ServerBus):
+async def test_subfn(server_bus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
     async def f(req: MockReq_1):
         assert server_bus.get_ctx()["connsid"] == conn.sid
@@ -44,3 +44,5 @@ async def test_rpc(server_bus: ServerBus):
     await asyncio.wait_for(conn.client__recv(), 1)
 
     conn_task.cancel()
+
+async def test_subfn_custom(server_bus: ServerBus):
