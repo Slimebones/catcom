@@ -14,7 +14,7 @@ from tests.conftest import (
 )
 
 
-async def test_rpc():
+async def test_rpc(server_bus: ServerBus):
     async def update_email(data: dict) -> Res[int]:
         username = data["username"]
         email = data["email"]
@@ -23,21 +23,6 @@ async def test_rpc():
         assert username == "test_username"
         assert email == "test_email"
         return Ok(0)
-
-    evt = asyncio.Event()
-    async def on_send(connsid: str, rmsg: dict):
-        evt.set()
-
-    server_bus = ServerBus.ie()
-    cfg = ServerBusCfg(
-        transports=[
-            Transport(
-                is_server=True,
-                conn_type=MockConn,
-                on_send=on_send,
-                server__register_process="none")
-        ])
-    await server_bus.init(cfg)
 
     conn_1 = MockConn(ConnArgs(
         core=None))

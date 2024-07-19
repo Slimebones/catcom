@@ -261,6 +261,9 @@ class ServerBus(Singleton):
     def __init__(self):
         self._is_initd = False
 
+    def get_ctx(self) -> dict:
+        return _rxcat_ctx.get().copy()
+
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
         self._cfg = cfg
 

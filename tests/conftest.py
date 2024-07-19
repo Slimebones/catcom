@@ -7,7 +7,7 @@ from pykit.fcode import FcodeCore
 from pykit.res import Res
 from result import Err, Ok
 
-from rxcat import Conn, ConnArgs, ServerBus
+from rxcat import Conn, ConnArgs, ServerBus, ServerBusCfg, Transport
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -21,7 +21,14 @@ async def auto():
 @pytest_asyncio.fixture
 async def server_bus() -> ServerBus:
     bus = ServerBus.ie()
-    await bus.init()
+    cfg = ServerBusCfg(
+        transports=[
+            Transport(
+                is_server=True,
+                conn_type=MockConn,
+                server__register_process="none")
+        ])
+    await bus.init(cfg)
     return bus
 
 class MockConn(Conn[None]):
