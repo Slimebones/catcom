@@ -39,7 +39,7 @@ class CodeStorage:
         # put RegisterReq to index 0, according to the protocol
         register_req_start_index = -1
         for i, c in enumerate(collections):
-            if c[0] == "rxcat_register_req":
+            if c[0] == "rxcat__register_req":
                 register_req_start_index = i
         assert register_req_start_index >= 0, "RegisterReq must be found"
         # replace whatever is at index 0, and put register req there

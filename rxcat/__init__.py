@@ -41,14 +41,14 @@ from rxcat._err import ErrDto
 from rxcat._msg import (
     ErrEvt,
     Evt,
-    WelcomeEvt,
     Msg,
     OkEvt,
+    RegisterReq,
     Req,
     TEvt,
     TMsg,
     TReq,
-    RegisterReq
+    WelcomeEvt,
 )
 from rxcat._rpc import RpcEvt, RpcFn, RpcReq, TRpcFn
 from rxcat._transport import (
@@ -671,7 +671,7 @@ class ServerBus(Singleton):
         assert t is not None, "if mcodeid found, mtype must be found"
 
         t = typing.cast(type[Msg], t)
-        rmsg["m_connsid"] = conn.sid
+        rmsg["skipnet__connsid"] = conn.sid
         try:
             msg = t.deserialize_from_net(rmsg)
         except Exception as err:

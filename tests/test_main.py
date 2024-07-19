@@ -94,4 +94,4 @@ async def test_evt_serialization(server_bus: ServerBus) -> None:
     assert m == m_after
 
 def test_register_req_has_index_0(server_bus: ServerBus):
-    assert CodeStorage.indexed_mcodes[0][0] == "rxcat_register_req"
+    assert CodeStorage.indexed_mcodes[0][0] == "rxcat__register_req"

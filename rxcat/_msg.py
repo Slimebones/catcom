@@ -70,8 +70,7 @@ class Msg(BaseModel):
             # all inner keys are deleted from the final serialization
             if (
                     v is None
-                    or k.startswith("internal__")
-                    or k.startswith("skipnet__")):
+                    or k.startswith(("internal__", "skipnet__"))):
                 keys_to_del.append(k)
 
         if not is_msid_found:
@@ -103,7 +102,8 @@ class Req(Msg):
     """
 
     def get_res_connsids(self) -> list[str]:
-        return [self.skipnet__connsid] if self.skipnet__connsid is not None else []
+        return [self.skipnet__connsid] \
+            if self.skipnet__connsid is not None else []
 
 class Evt(Msg):
     """

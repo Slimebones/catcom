@@ -75,13 +75,13 @@ class MockConn(Conn[None]):
         return await self.out_queue.get()
 
 def find_mcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
-    for i, code_container in enumerate(rmsg["indexedMcodes"]):
+    for i, code_container in enumerate(rmsg["indexed_mcodes"]):
         if code in code_container:
             return Ok(i)
     return Err(ValErr())
 
 def find_errcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
-    for i, code_container in enumerate(rmsg["indexedErrcodes"]):
+    for i, code_container in enumerate(rmsg["indexed_errcodes"]):
         if code in code_container:
             return Ok(i)
     return Err(ValErr())
