@@ -227,6 +227,8 @@ class ServerBusCfg(BaseModel):
     sub_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[SrpcSend], Awaitable[CtxManager]] | None = None
 
+    trace_errs_on_pub: bool = True
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -744,6 +746,9 @@ class ServerBus(Singleton):
         Received Exception instance will be parsed to ErrDto. If it is an
         UnwrapError, it's value will be retrieved, validated as an Exception,
         and then parsed to ErrDto.
+
+        Received Exceptions are additionally logged if
+        cfg.trace_errs_on_pub == True.
         """
         code_res = get_mdata_code(data)
         if isinstance(code_res, Err):
@@ -760,6 +765,11 @@ class ServerBus(Singleton):
                     data = ResourceServerErr(
                         f"got res with err value {res.err_value},"
                         " which is not an instance of Exception")
+            err = typing.cast(Exception, data)
+            log.err(
+                f"thrown err {get_fully_qualified_name(err)} to pub"
+                " #stacktrace")
+            log.catch(err)
             data = ErrDto.create(data)
 
         lsid = None
