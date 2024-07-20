@@ -1,4 +1,4 @@
-# 0.3.0 - UNRELEASED
+# 1.0.0 - UNRELEASED
 
 - updated pykit@0.8.0
 - listed public exports
