@@ -17,7 +17,7 @@ async def test_res_returning(server_bus: ServerBus):
     async def ret_ok(msg) -> Res[MockEvt_1]:
         nonlocal is_msg1_arrived
         is_msg1_arrived = True
-        return Ok(MockEvt_1(num=5, rsid=None))
+        return Ok(MockEvt_1(num=5, lsid=None))
 
     async def ret_err(msg):
         nonlocal is_msg2_arrived
@@ -70,8 +70,8 @@ async def test_inner_pubsub(server_bus: ServerBus):
 
     await server_bus.sub(MockEvt_1, on_msg1)
     await server_bus.sub(MockEvt_2, on_msg2)
-    await server_bus.pub(MockEvt_1(num=1, rsid=None))
-    await server_bus.pub(MockEvt_2(num=2, rsid=None))
+    await server_bus.pub(MockEvt_1(num=1, lsid=None))
+    await server_bus.pub(MockEvt_2(num=2, lsid=None))
 
     assert is_msg1_arrived
     assert is_msg2_arrived
@@ -79,7 +79,7 @@ async def test_inner_pubsub(server_bus: ServerBus):
 async def test_evt_serialization(server_bus: ServerBus) -> None:
     msg1_mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(MockEvt_1))
 
-    m = MockEvt_1(num=1, rsid=None)
+    m = MockEvt_1(num=1, lsid=None)
 
     sm = m.serialize_for_net(msg1_mcodeid)
 

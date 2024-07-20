@@ -11,7 +11,7 @@ from rxcat import (
     ServerBus,
     ServerBusCfg,
     SrpcEvt,
-    SrpcReq,
+    SrpcSend,
     Transport,
 )
 from rxcat._code import CodeStorage
@@ -56,7 +56,7 @@ async def test_rpc(server_bus: ServerBus):
     rpc_key = "srpc__update_email:" + rpc_token
     await conn.client__send({
         "msid": RandomUtils.makeid(),
-        "mcodeid": eject(CodeStorage.get_mcodeid_for_mtype(SrpcReq)),
+        "mcodeid": eject(CodeStorage.get_mcodeid_for_mtype(SrpcSend)),
         "key": rpc_key,
         "args": {"username": "test_username", "email": "test_email"}
     })
@@ -100,7 +100,7 @@ async def test_rpc_custom_ctx_manager():
     rpc_key = "srpc__update_email:" + rpc_token
     await conn.client__send({
         "msid": RandomUtils.makeid(),
-        "mcodeid": eject(CodeStorage.get_mcodeid_for_mtype(SrpcReq)),
+        "mcodeid": eject(CodeStorage.get_mcodeid_for_mtype(SrpcSend)),
         "key": rpc_key,
         "args": {}
     })

@@ -16,7 +16,7 @@ from rxcat import (
     Req,
     ServerBus,
     ServerBusCfg,
-    SrpcReq,
+    SrpcSend,
     Transport,
 )
 
@@ -95,7 +95,7 @@ class MockCtxManager:
 async def get_mock_ctx_manager_for_msg(msg: Msg) -> MockCtxManager:
     return MockCtxManager()
 
-async def get_mock_ctx_manager_for_srpc_req(req: SrpcReq) -> MockCtxManager:
+async def get_mock_ctx_manager_for_srpc_req(req: SrpcSend) -> MockCtxManager:
     return MockCtxManager()
 
 def find_mcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:

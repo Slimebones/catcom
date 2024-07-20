@@ -13,30 +13,32 @@ from pydantic import BaseModel
 from pykit.fcode import code
 from pykit.res import Res
 
-from rxcat._msg import Evt, Req
-
 
 class EmptyRpcArgs(BaseModel):
     """
     When you need to use empty args for your rpc function.
     """
 
-@code("rxcat__srpc_req")
-class SrpcReq(Req):
+class SrpcSend(BaseModel):
     key: str
     args: dict
     """
     Any parseable kwargs passed to rpc fn.
     """
 
-@code("rxcat__srpc_evt")
-class SrpcEvt(Evt):
+    def code(self) -> str:
+        return "rxcat__srpc_send"
+
+class SrpcRecv(BaseModel):
     key: str
     val: Any
     """
     Returned value can be anything serializable or an exception, which will
     be serialized to ErrDto.
     """
+
+    def code(self) -> str:
+        return "rxcat__srpc_recv"
 
 class RpcFn(Protocol):
     """

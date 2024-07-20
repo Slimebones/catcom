@@ -1,12 +1,68 @@
+from inspect import isfunction
 from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel
+from pykit.err import ValErr
 from pykit.fcode import code
 from pykit.log import log
+from pykit.obj import get_fully_qualified_name
 from pykit.rand import RandomUtils
+from pykit.res import Res
+from result import Err, Ok
 
 from rxcat._err import ErrDto
 
+MsgData = Any
+"""
+Any custom data bus user interested in. Must be serializable and implement
+`code() -> str` method.
+
+To represent basic types without the need of modifying them with code
+signature, use CodedMsgData.
+"""
+class CodedMsgData(BaseModel):
+    """
+    Msg data coupled with identification code.
+    """
+    code: str
+    data: MsgData
+
+def get_msg_data_code(data: MsgData) -> Res[str]:
+    if isinstance(data, CodedMsgData):
+        code = data.code
+    else:
+        codefn = getattr(data, "code", None)
+        if codefn is None:
+            return Err(ValErr(
+                f"msg data {data} must define \"code() -> str\" method"))
+        if not isfunction(codefn):
+            return Err(ValErr(
+                f"msg data {data} \"code\" attribute must be function,"
+                f" got {codefn}"))
+        try:
+            code = codefn()
+        except Exception as err:
+            log.catch(err)
+            return Err(ValErr(
+                f"err {get_fully_qualified_name(err)} occured during"
+                f" msg data {data} {codefn} method call #~stacktrace"))
+
+    if not isinstance(code, str):
+        return Err(ValErr(f"msg data {data} code {code} must be str"))
+    if code == "":
+        return Err(ValErr(f"msg data {data} has empty code"))
+    for i, c in enumerate(code):
+        if i == 0 and not c.isalpha():
+            return Err(ValErr(
+                f"msg data {data} code {code} must start with alpha"))
+        if not c.isalnum() and c != "_":
+            return Err(ValErr(
+                f"msg data {data} code {code} can contain only alnum"
+                " characters or underscore"))
+    if len(code) > 256:
+        return Err(ValErr(f"msg data {data} code {code} exceeds maxlen 256"))
+
+    return Ok(code)
 
 class Msg(BaseModel):
     """
@@ -16,9 +72,17 @@ class Msg(BaseModel):
 
     Fields prefixed with "skip__" won't pass net serialization process.
 
-    @abs
+    Msgs are internal to rxcat implementation. The bus user is only interested
+    in the actual data he is operating on, and which connections they are
+    operating with. And the Msg is just an underlying container for that.
     """
     msid: str = ""
+    lsid: str | None = None
+    """
+    Linked message's sid.
+
+    Used to send this message back to the owner of the message with this lsid.
+    """
 
     skip__connsid: str | None = None
     """
@@ -31,6 +95,31 @@ class Msg(BaseModel):
     skip__target_connsids: list[str] = []
     """
     To which connsids the published msg should be addressed.
+    """
+
+    data: MsgData
+
+    skip__err: Exception | None = None
+    """
+    Err that only exists on the inner bus and won't be serialized.
+
+    Only filled for error-carrying messages.
+    """
+
+    internal__is_thrown_by_lsubfn: bool | None = None
+    """
+    Errs can be thrown by req-listening action or by req+evt listening
+    pubfn.
+
+    Only filled for error-carrying messages.
+
+    In the second case, we should set this flag to True to avoid infinite
+    msg loop, where after pubfn fail, the err evt is generated with the
+    same req sid, and again is sent to the same pubfn which caused this
+    err.
+
+    If this flag is set, the bus will prevent pubfn trigger, for this err
+    evt, but won't disable the pubfn.
     """
 
     class Config:
@@ -99,90 +188,25 @@ class Msg(BaseModel):
         if "mcodeid" in data:
             del data["mcodeid"]
 
-        if "rsid" not in data:
-            data["rsid"] = None
+        if "lsid" not in data:
+            data["lsid"] = None
 
         return cls(**data)
 
-class Req(Msg):
-    """
-    @abs
-    """
-
-    def get_res_connsids(self) -> list[str]:
-        return [self.skip__connsid] \
-            if self.skip__connsid is not None else []
-
-class Evt(Msg):
-    """
-    @abs
-    """
-    rsid: str | None
-    """
-    In response to which request the event has been sent.
-    """
-
-    skip__is_continious: bool | None = None
-    """
-    Whether receiving bus should delete pubfn entry after call pubfn
-    with this evt. If true, the entry is not deleted.
-    """
-
-    def as_res_from_req(self, req: Req) -> Self:
-        self.rsid = req.msid
-        self.skip__target_connsids = req.get_res_connsids()
-        return self
-
 TMsg = TypeVar("TMsg", bound=Msg)
-TEvt = TypeVar("TEvt", bound=Evt)
-TReq = TypeVar("TReq", bound=Req)
 
-@code("rxcat__ok_evt")
-class OkEvt(Evt):
+class ok:
     """
     Confirm that a req processed successfully.
 
-    This evt should have a rsid defined, otherwise it is pointless since
+    This evt should have a lsid defined, otherwise it is pointless since
     it is too general.
     """
 
-    @classmethod
-    def create(cls, req: Req) -> Self:
-        """
-        Convenience method to create OkEvt in response to a request.
-        """
-        return cls(rsid="").as_res_from_req(req)
+    def code(self) -> str:
+        return "rxcat__ok"
 
-@code("rxcat__err_evt")
-class ErrEvt(Evt):
-    """
-    Represents any err that can be thrown.
-
-    Only Server-endpoints can throw errs to the bus.
-    """
-    err: ErrDto
-
-    skip__err: Exception | None = None
-    """
-    Err that only exists on the inner bus and won't be serialized.
-    """
-
-    internal__is_thrown_by_pubfn: bool | None = None
-    """
-    Errs can be thrown by req-listening action or by req+evt listening
-    pubfn.
-
-    In the second case, we should set this flag to True to avoid infinite
-    msg loop, where after pubfn fail, the err evt is generated with the
-    same req sid, and again is sent to the same pubfn which caused this
-    err.
-
-    If this flag is set, the bus will prevent pubfn trigger, for this err
-    evt, but won't disable the pubfn.
-    """
-
-@code("rxcat__welcome_evt")
-class WelcomeEvt(Evt):
+class Welcome(BaseModel):
     """
     Welcome evt sent to every connected client.
 
@@ -203,8 +227,10 @@ class WelcomeEvt(Evt):
 
     # ... here an additional info how to behave properly on the bus can be sent
 
-@code("rxcat__register_req")
-class RegisterReq(Req):
+    def code(self) -> str:
+        return "rxcat__welcome"
+
+class Register(BaseModel):
     tokens: list[str]
     """
     Client's list of token to manage signed connection.
@@ -218,3 +244,6 @@ class RegisterReq(Req):
     """
     Extra client data passed to the resource server.
     """
+
+    def code(self) -> str:
+        return "rxcat__register"

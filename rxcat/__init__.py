@@ -11,6 +11,7 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import contextlib
+from enum import Enum
 import functools
 import typing
 from asyncio import Queue
@@ -21,6 +22,7 @@ from typing import (
     Any,
     ClassVar,
     Coroutine,
+    Literal,
     Protocol,
     runtime_checkable,
 )
@@ -39,18 +41,14 @@ from result import Err, Ok, UnwrapError
 from rxcat._code import CodeStorage
 from rxcat._err import ErrDto
 from rxcat._msg import (
+    MsgData,
     ErrEvt,
-    Evt,
     Msg,
-    OkEvt,
-    RegisterReq,
-    Req,
-    TEvt,
+    Register,
     TMsg,
-    TReq,
-    WelcomeEvt,
+    Welcome,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcReq, TRpcFn
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcSend, TRpcFn
 from rxcat._transport import (
     ActiveTransport,
     Conn,
@@ -64,20 +62,16 @@ from rxcat._ws import Ws
 
 __all__ = [
     "ServerBus",
+    "SubFn",
+    "LinkedSubFnData",
+    "CtxVar",
 
     "ResourceServerErr",
     "RegisterFn",
 
-    "Msg",
-    "Req",
-    "Evt",
-    "ErrEvt",
-    "OkEvt",
+    "MsgData",
 
     "RpcFn",
-    # req and evt needed mostly for typehinting, e.g. for ctx manager functions
-    "SrpcReq",
-    "SrpcEvt",
     "srpc",
     "EmptyRpcArgs",
 
@@ -140,7 +134,9 @@ class internal__BusUnhandledErr(Exception):
             f"bus unhandled err: {err}"
         )
 
-Subscriber = Callable[[TMsg], Awaitable[Res[TMsg | list[TMsg] | None] | None]]
+SubFn = Callable[
+    [MsgData],
+    Awaitable[Res[MsgData | list[MsgData] | None] | None]]
 
 class PubOpts(BaseModel):
     must_send_to_inner: bool = True
@@ -172,9 +168,9 @@ class SubOpts(BaseModel):
     All filters should succeed before msg being passed to a subscriber.
     """
 
-class _SubFn(BaseModel):
+class SubFnData(BaseModel):
     sid: str
-    subscriber: Subscriber
+    fn: SubFn
     opts: SubOpts
     is_removing: bool = False
     """
@@ -185,8 +181,28 @@ class _SubFn(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+class CtxVar(Enum):
+    """
+    Defines access mechanism to some context variable.
+
+    Values:
+        - Default: access according to the associated field. For example for
+                   "lsid = CtxVar.Default", the "msid" var will be accessed,
+                   to respond to the current message.
+        - ...further values correspond to actual context fields
+    """
+    Default = 0,
+    Msid = 1,
+    Connsid = 2
+
+class LinkedSubFnData(BaseModel):
+    fn: SubFn
+    lsid: str | CtxVar = CtxVar.Default
+
+    class Config:
+        arbitrary_types_allowed = True
+
 _rxcat_ctx = ContextVar("rxcat", default={})
-PubFn = Callable[[TReq, TEvt], Awaitable[Res[None] | None]]
 
 @runtime_checkable
 class CtxManager(Protocol):
@@ -219,7 +235,7 @@ class ServerBusCfg(BaseModel):
     """
 
     sub_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
-    rpc_ctxfn: Callable[[SrpcReq], Awaitable[CtxManager]] | None = None
+    rpc_ctxfn: Callable[[SrpcSend], Awaitable[CtxManager]] | None = None
 
     are_errs_catchlogged: bool = False
     """
@@ -265,16 +281,16 @@ class ServerBus(Singleton):
         self._sid_to_conn: dict[str, Conn] = {}
 
         self._subsid_to_mtype: dict[str, type[Msg]] = {}
-        self._subsid_to_subfn: dict[str, _SubFn] = {}
+        self._subsid_to_subfn: dict[str, SubFnData] = {}
         self._mtype_to_subfns: \
-            dict[type[Msg], list[_SubFn]] = {}
+            dict[type[Msg], list[SubFnData]] = {}
         self._type_to_last_msg: dict[type[Msg], Msg] = {}
 
         self._preserialized_initd_client_evt: dict = {}
         self._initd_client_evt_mcodeid: int | None = None
 
-        self._rsid_to_req_and_pubfn: dict[str, tuple[Req, PubFn]] = {}
-        self._rsids_to_del_on_next_pubfn: set[str] = set()
+        self._lsid_to_inpdata_and_subfn: dict[str, tuple[MsgData, SubFn]] = {}
+        self._lsids_to_del_on_next_pubfn: set[str] = set()
 
         self._is_initd = True
         self._is_post_initd = False
@@ -366,10 +382,10 @@ class ServerBus(Singleton):
         if (
             (
                 iscls
-                and (issubclass(msg, SrpcReq) or issubclass(msg, SrpcEvt)))
+                and (issubclass(msg, SrpcSend) or issubclass(msg, SrpcEvt)))
             or (
                 not iscls
-                and (isinstance(msg, (SrpcEvt, SrpcReq))))):
+                and (isinstance(msg, (SrpcEvt, SrpcSend))))):
             raise ValErr(
                 f"msg {msg} in context of \"{ctx}\" cannot be associated with"
                 " rpc")
@@ -403,7 +419,7 @@ class ServerBus(Singleton):
             err:
                 Err to throw as evt.
             triggered_msg:
-                Msg which caused an error. If the msg is Evt with rsid
+                Msg which caused an error. If the msg is Evt with lsid
                 defined, it will be send back to the requestor.
             pub_opts:
                 Extra pub opts to send to Bus.pub method.
@@ -418,11 +434,11 @@ class ServerBus(Singleton):
                 err = ResourceServerErr(
                     f"got res with err value {res_err_value},"
                     " which is not an instance of Exception")
-        rsid: str | None = None
+        lsid: str | None = None
         if isinstance(triggered_msg, Evt):
-            rsid = triggered_msg.rsid
+            lsid = triggered_msg.lsid
         elif isinstance(triggered_msg, Req):
-            rsid = triggered_msg.msid
+            lsid = triggered_msg.msid
         else:
             assert triggered_msg is None
 
@@ -436,7 +452,7 @@ class ServerBus(Singleton):
             err=ErrDto.create(
                 err, CodeStorage.try_get_errcodeid_for_errtype(type(err))),
             skip__err=err,
-            rsid=rsid,
+            lsid=lsid,
             skip__target_connsids=final_to_connsids,
             internal__is_thrown_by_pubfn=is_thrown_by_pubfn
         )
@@ -455,14 +471,14 @@ class ServerBus(Singleton):
         FcodeCore.deflock = True
 
         if self._initd_client_evt_mcodeid is None:
-            mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(WelcomeEvt))
+            mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(Welcome))
             self._initd_client_evt_mcodeid = mcodeid
 
         if not self._preserialized_initd_client_evt:
-            self._preserialized_initd_client_evt = WelcomeEvt(
+            self._preserialized_initd_client_evt = Welcome(
                 indexed_mcodes=CodeStorage.indexed_mcodes,
                 indexed_errcodes=CodeStorage.indexed_errcodes,
-                rsid=None
+                lsid=None
             ).serialize_for_net(self._initd_client_evt_mcodeid)
         self._is_post_initd = True
 
@@ -540,7 +556,7 @@ class ServerBus(Singleton):
         msg = await self.parse_rmsg(rmsg, conn)
         if not msg:
             return Err(ValErr("failed to parse first msg from"))
-        if not isinstance(msg, RegisterReq):
+        if not isinstance(msg, Register):
             return Err(ValErr(
                 f"first msg should be RegisterReq, got {msg}"))
 
@@ -596,7 +612,7 @@ class ServerBus(Singleton):
                 f"server bus won't accept RpcEvt messages, got {msg}"
                 " => skip")
             return
-        elif isinstance(msg, SrpcReq):
+        elif isinstance(msg, SrpcSend):
             # process rpc in a separate task to not block inp queue
             # processing
             task = asyncio.create_task(self._call_rpc(msg))
@@ -606,7 +622,7 @@ class ServerBus(Singleton):
         # publish to inner bus with no duplicate net resending
         await self.pub(msg, None, PubOpts(must_send_to_net=False))
 
-    async def _call_rpc(self, req: SrpcReq):
+    async def _call_rpc(self, req: SrpcSend):
         code, _ = req.key.split(":")
         if code not in self._code_to_rpcfn:
             log.err(f"no such rpc code {code} for req {req} => skip")
@@ -654,7 +670,7 @@ class ServerBus(Singleton):
         # val must be any serializable by pydantic object, so here we pass it
         # directly as field of SrpcEvt, which will do serialization
         # automatically under the hood
-        evt = SrpcEvt(rsid=None, key=req.key, val=val).as_res_from_req(req)
+        evt = SrpcEvt(lsid=None, key=req.key, val=val).as_res_from_req(req)
         await self._pub_to_net(type(evt), evt)
 
     async def parse_rmsg(
@@ -665,8 +681,8 @@ class ServerBus(Singleton):
             log.err("msg without msid => skip silently")
             return None
 
-        # for future rsid navigation
-        # rsid: str | None = rmsg.get("rsid", None)
+        # for future lsid navigation
+        # lsid: str | None = rmsg.get("lsid", None)
 
         mcodeid: int | None = rmsg.get("mcodeid", None)
         if mcodeid is None:
@@ -707,7 +723,7 @@ class ServerBus(Singleton):
     async def sub(
         self,
         mtype: type[TMsg],
-        action: Subscriber,
+        action: SubFn,
         opts: SubOpts = SubOpts(),
     ) -> Callable:
         """
@@ -728,8 +744,8 @@ class ServerBus(Singleton):
         """
         self._checkthrow_norpc_msg(mtype, "subscription")
         subsid = RandomUtils.makeid()
-        subfn = _SubFn(
-            sid=subsid, subscriber=typing.cast(Callable, action), opts=opts)
+        subfn = SubFnData(
+            sid=subsid, fn=typing.cast(Callable, action), opts=opts)
 
         if mtype not in self._mtype_to_subfns:
             self._mtype_to_subfns[mtype] = []
@@ -770,14 +786,14 @@ class ServerBus(Singleton):
 
     async def pubr(
         self,
-        req: Req,
+        data: MsgData,
         opts: PubOpts = PubOpts()
-    ) -> Evt:
+    ) -> MsgData:
         """
         Publishes a message and awaits for the response.
         """
         aevt = asyncio.Event()
-        pointer = Pointer(target=Evt(rsid=""))
+        pointer = Pointer(target=Evt(lsid=""))
 
         def wrapper(aevt: asyncio.Event, evtf_pointer: Pointer[Evt]):
             async def pubfn(_, evt: Evt):
@@ -822,21 +838,25 @@ class ServerBus(Singleton):
 
     async def pub(
         self,
-        msg: Msg,
-        pubfn: PubFn | None = None,
+        data: MsgData,
+        lsubfn: LinkedSubFnData | None = None,
         opts: PubOpts = PubOpts(),
     ):
+        msg = Msg(
+            lsid=lsubfn.lsid if lsubfn else None
+        )
+
         self._checkthrow_norpc_msg(msg, "publication")
-        if pubfn is not None and not isinstance(msg, Req):
+        if subfn is not None and not isinstance(msg, Req):
             raise InpErr(f"for defined pubfn, {msg} should be req")
 
         if (
             isinstance(msg, Req)
-            and pubfn is not None
+            and subfn is not None
         ):
-            if msg.msid in self._rsid_to_req_and_pubfn:
+            if msg.msid in self._lsid_to_inpdata_and_subfn:
                 raise AlreadyProcessedErr(f"{msg} for pubr")
-            self._rsid_to_req_and_pubfn[msg.msid] = (msg, pubfn)
+            self._lsid_to_inpdata_and_subfn[msg.msid] = (msg, subfn)
 
         mtype = type(msg)
         self._type_to_last_msg[mtype] = msg
@@ -906,11 +926,11 @@ class ServerBus(Singleton):
                 await atransport.out_queue.put((conn, rmsg))
 
     async def _send_evt_as_response(self, evt: Evt):
-        if not evt.rsid:
+        if not evt.lsid:
             return
 
-        req_and_pubfn = self._rsid_to_req_and_pubfn.get(
-            evt.rsid,
+        req_and_pubfn = self._lsid_to_inpdata_and_subfn.get(
+            evt.lsid,
             None
         )
 
@@ -923,10 +943,10 @@ class ServerBus(Singleton):
             pubfn = req_and_pubfn[1]
             await self._try_call_pubfn(pubfn, req, evt)
 
-    def _try_del_pubfn(self, rsid: str) -> bool:
-        if rsid not in self._rsid_to_req_and_pubfn:
+    def _try_del_pubfn(self, lsid: str) -> bool:
+        if lsid not in self._lsid_to_inpdata_and_subfn:
             return False
-        del self._rsid_to_req_and_pubfn[rsid]
+        del self._lsid_to_inpdata_and_subfn[lsid]
         return True
 
     async def _try_call_pubfn(
@@ -962,15 +982,15 @@ class ServerBus(Singleton):
 
         return ctx_dict
 
-    async def _call_subfn(self, subfn: _SubFn, msg: Msg):
+    async def _call_subfn(self, subfn: SubFnData, msg: Msg):
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
         if self._cfg.sub_ctxfn is not None:
             ctx_manager = await self._cfg.sub_ctxfn(msg)
             async with ctx_manager:
-                res = await subfn.subscriber(msg)
+                res = await subfn.fn(msg)
         else:
-            res = await subfn.subscriber(msg)
+            res = await subfn.fn(msg)
 
         if isinstance(res, (Err, Ok)):
             val = eject(res)
@@ -991,7 +1011,7 @@ class ServerBus(Singleton):
 
     async def _try_call_subfn(
         self,
-        subfn: _SubFn,
+        subfn: SubFnData,
         msg: Msg
     ) -> bool:
         filters = subfn.opts.filters
