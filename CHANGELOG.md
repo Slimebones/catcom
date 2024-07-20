@@ -17,9 +17,9 @@
 - changed code "err-evt" to "rxcat__err_evt"
 - changed code "ok-evt" to "rxcat__ok_evt"
 - changed RegisterReq code to "rxcat__register_req"
-- renamed msg fields - all to snake case; introduce "skipnet__" prefix to not serialize field to the net
+- renamed msg fields - all to snake case; introduce "skip__" prefix to not serialize field to the net
 - renamed Msg.serialize_json to Msg.serialize_for_net; renamed Msg.deserialize_json to Msg.deserialize_from_net
-- make officially public ErrEvt.skipnet__err which holds the original err object
+- make officially public ErrEvt.skip__err which holds the original err object
 - renamed SubAction to SubFn; renamed PubAction to PubFn
 - added sub and rpc custom context managers support
 - added Msg.connsid and Msg.target_connsids properties

@@ -14,13 +14,13 @@ class Msg(BaseModel):
 
     Note that any field set to None won't be serialized.
 
-    Fields prefixed with "skipnet__" won't pass net serialization process.
+    Fields prefixed with "skip__" won't pass net serialization process.
 
     @abs
     """
     msid: str = ""
 
-    skipnet__connsid: str | None = None
+    skip__connsid: str | None = None
     """
     From which conn the msg is originated.
 
@@ -28,7 +28,7 @@ class Msg(BaseModel):
     Otherwise it is always set to connsid.
     """
 
-    skipnet__target_connsids: list[str] = []
+    skip__target_connsids: list[str] = []
     """
     To which connsids the published msg should be addressed.
     """
@@ -47,11 +47,11 @@ class Msg(BaseModel):
 
     @property
     def connsid(self) -> str | None:
-        return self.skipnet__connsid
+        return self.skip__connsid
 
     @property
     def target_connsids(self) -> list[str]:
-        return self.skipnet__target_connsids.copy()
+        return self.skip__target_connsids.copy()
 
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
@@ -60,7 +60,7 @@ class Msg(BaseModel):
 
         # DEL SERVER MSG FIELDS
         #       we should do these before key deletion setup
-        if "skipnet__connsid" in res and res["skipnet__connsid"] is not None:
+        if "skip__connsid" in res and res["skip__connsid"] is not None:
             # connsids must exist only inside server bus, it's probably an err
             # if a msg is tried to be serialized with connsid, but we will
             # throw a warning for now, and ofcourse del the field
@@ -78,7 +78,7 @@ class Msg(BaseModel):
             # all inner keys are deleted from the final serialization
             if (
                     v is None
-                    or k.startswith(("internal__", "skipnet__"))):
+                    or k.startswith(("internal__", "skip__"))):
                 keys_to_del.append(k)
 
         if not is_msid_found:
@@ -110,8 +110,8 @@ class Req(Msg):
     """
 
     def get_res_connsids(self) -> list[str]:
-        return [self.skipnet__connsid] \
-            if self.skipnet__connsid is not None else []
+        return [self.skip__connsid] \
+            if self.skip__connsid is not None else []
 
 class Evt(Msg):
     """
@@ -122,7 +122,7 @@ class Evt(Msg):
     In response to which request the event has been sent.
     """
 
-    skipnet__is_continious: bool | None = None
+    skip__is_continious: bool | None = None
     """
     Whether receiving bus should delete pubfn entry after call pubfn
     with this evt. If true, the entry is not deleted.
@@ -130,7 +130,7 @@ class Evt(Msg):
 
     def as_res_from_req(self, req: Req) -> Self:
         self.rsid = req.msid
-        self.skipnet__target_connsids = req.get_res_connsids()
+        self.skip__target_connsids = req.get_res_connsids()
         return self
 
 TMsg = TypeVar("TMsg", bound=Msg)
@@ -162,7 +162,7 @@ class ErrEvt(Evt):
     """
     err: ErrDto
 
-    skipnet__err: Exception | None = None
+    skip__err: Exception | None = None
     """
     Err that only exists on the inner bus and won't be serialized.
     """

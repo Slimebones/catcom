@@ -429,15 +429,15 @@ class ServerBus(Singleton):
         final_to_connsids = []
         if m_to_connsids is not None:
             final_to_connsids = m_to_connsids
-        elif triggered_msg and triggered_msg.skipnet__connsid is not None:
-            final_to_connsids = [triggered_msg.skipnet__connsid]
+        elif triggered_msg and triggered_msg.skip__connsid is not None:
+            final_to_connsids = [triggered_msg.skip__connsid]
 
         evt = ErrEvt(
             err=ErrDto.create(
                 err, CodeStorage.try_get_errcodeid_for_errtype(type(err))),
-            skipnet__err=err,
+            skip__err=err,
             rsid=rsid,
-            skipnet__target_connsids=final_to_connsids,
+            skip__target_connsids=final_to_connsids,
             internal__is_thrown_by_pubfn=is_thrown_by_pubfn
         )
 
@@ -695,7 +695,7 @@ class ServerBus(Singleton):
         assert t is not None, "if mcodeid found, mtype must be found"
 
         t = typing.cast(type[Msg], t)
-        rmsg["skipnet__connsid"] = conn.sid
+        rmsg["skip__connsid"] = conn.sid
         try:
             msg = t.deserialize_from_net(rmsg)
         except Exception as err:
@@ -808,7 +808,7 @@ class ServerBus(Singleton):
             isinstance(pointer.target, ErrEvt)
             and not opts.pubr_must_ignore_err_evt
         ):
-            final_err = pointer.target.skipnet__err
+            final_err = pointer.target.skip__err
             if not final_err:
                 log.warn(
                     f"on pubr got err evt {pointer.target} without"
@@ -876,10 +876,10 @@ class ServerBus(Singleton):
         opts: PubOpts = PubOpts()
     ):
         mcodeid_res = CodeStorage.get_mcodeid_for_mtype(mtype)
-        if isinstance(mcodeid_res, Ok) and msg.skipnet__target_connsids:
+        if isinstance(mcodeid_res, Ok) and msg.skip__target_connsids:
             mcodeid = mcodeid_res.ok_value
             rmsg = msg.serialize_for_net(mcodeid)
-            for connsid in msg.skipnet__target_connsids:
+            for connsid in msg.skip__target_connsids:
                 if connsid not in self._sid_to_conn:
                     log.err(
                         f"no conn with id {connsid} for msg {msg}"
@@ -946,19 +946,19 @@ class ServerBus(Singleton):
             await self.throw(
                 err,
                 evt,
-                m_to_connsids=req.skipnet__target_connsids,
+                m_to_connsids=req.skip__target_connsids,
                 is_thrown_by_pubfn=True
             )
             f = False
-        if not evt.skipnet__is_continious:
+        if not evt.skip__is_continious:
             self._try_del_pubfn(req.msid)
         return f
 
     def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
         ctx_dict = _rxcat_ctx.get().copy()
 
-        if msg.skipnet__connsid:
-            ctx_dict["connsid"] = msg.skipnet__connsid
+        if msg.skip__connsid:
+            ctx_dict["connsid"] = msg.skip__connsid
 
         return ctx_dict
 
