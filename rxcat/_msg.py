@@ -28,7 +28,7 @@ class CodedMsgData(BaseModel):
     code: str
     data: Mdata
 
-def get_msg_data_code(data: Mdata) -> Res[str]:
+def get_mdata_code(data: Mdata) -> Res[str]:
     if isinstance(data, CodedMsgData):
         code = data.code
     else:

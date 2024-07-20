@@ -41,6 +41,7 @@ from result import Err, Ok, UnwrapError
 from rxcat._code import CodeStorage
 from rxcat._err import ErrDto
 from rxcat._msg import (
+    get_mdata_code,
     Mdata,
     Msg,
     Register,
@@ -140,7 +141,7 @@ SubFn = Callable[
     Awaitable[Res[Mdata | list[Mdata] | None] | None]]
 
 class PubOpts(BaseModel):
-    subfn: SubFn
+    subfn: SubFn | None = None
 
     target_connsids: list[str] | None = None
     """
@@ -271,11 +272,11 @@ class ServerBus(Singleton):
 
         self._sid_to_conn: dict[str, Conn] = {}
 
-        self._subsid_to_mtype: dict[str, type[Msg]] = {}
-        self._subsid_to_subfn: dict[str, SubFnData] = {}
+        self._subsid_to_code: dict[str, str] = {}
+        self._subsid_to_subfndata: dict[str, SubFnData] = {}
         self._mtype_to_subfns: \
             dict[type[Msg], list[SubFnData]] = {}
-        self._type_to_last_msg: dict[type[Msg], Msg] = {}
+        self._code_to_last_mdata: dict[str, Mdata] = {}
 
         self._preserialized_initd_client_evt: dict = {}
         self._initd_client_evt_mcodeid: int | None = None
@@ -362,25 +363,6 @@ class ServerBus(Singleton):
                 f" of BaseModel, got {args_type}"))
 
         cls._code_to_rpcfn[code] = (fn, args_type)
-        return Ok(None)
-
-    def _check_norpc_mdata(
-            self, data: Mdata | type[Mdata], disp_ctx: str) -> Res[None]:
-        """
-        Since rpc msgs cannot participate in actions like "sub" and "pub",
-        we have a separate fn to check this.
-        """
-        iscls = isclass(data)
-        if (
-            (
-                iscls
-                and (issubclass(data, SrpcSend) or issubclass(data, SrpcRecv)))
-            or (
-                not iscls
-                and (isinstance(data, (SrpcSend, SrpcRecv))))):
-            return Err(ValErr(
-                f"mdata {data} in context of \"{disp_ctx}\" cannot be associated"
-                " with rpc"))
         return Ok(None)
 
     async def throw(
@@ -738,11 +720,11 @@ class ServerBus(Singleton):
         if mtype not in self._mtype_to_subfns:
             self._mtype_to_subfns[mtype] = []
         self._mtype_to_subfns[mtype].append(subfn)
-        self._subsid_to_subfn[subsid] = subfn
-        self._subsid_to_mtype[subsid] = mtype
+        self._subsid_to_subfndata[subsid] = subfn
+        self._subsid_to_code[subsid] = mtype
 
-        if opts.must_receive_last_msg and mtype in self._type_to_last_msg:
-            last_msg = self._type_to_last_msg[mtype]
+        if opts.must_receive_last_msg and mtype in self._code_to_last_mdata:
+            last_msg = self._code_to_last_mdata[mtype]
             await self._try_call_subfn(
                 subfn,
                 last_msg
@@ -751,17 +733,17 @@ class ServerBus(Singleton):
         return Ok(functools.partial(self.unsub, subsid))
 
     async def unsub(self, subsid: str) -> Res[None]:
-        if subsid not in self._subsid_to_mtype:
+        if subsid not in self._subsid_to_code:
             return Err(ValErr(f"sub with id {subsid} not found"))
 
-        assert self._subsid_to_mtype[subsid] in self._mtype_to_subfns
+        assert self._subsid_to_code[subsid] in self._mtype_to_subfns
 
-        msg_type = self._subsid_to_mtype[subsid]
+        msg_type = self._subsid_to_code[subsid]
 
-        assert subsid in self._subsid_to_mtype, "all maps must be synced"
-        assert subsid in self._subsid_to_subfn, "all maps must be synced"
-        del self._subsid_to_mtype[subsid]
-        del self._subsid_to_subfn[subsid]
+        assert subsid in self._subsid_to_code, "all maps must be synced"
+        assert subsid in self._subsid_to_subfndata, "all maps must be synced"
+        del self._subsid_to_code[subsid]
+        del self._subsid_to_subfndata[subsid]
         del self._mtype_to_subfns[msg_type]
         return Ok(None)
 
@@ -834,6 +816,11 @@ class ServerBus(Singleton):
             self,
             data: Mdata,
             opts: PubOpts = PubOpts()) -> Res[None]:
+        code_res = get_mdata_code(data)
+        if isinstance(code_res, Err):
+            return code_res
+        code = code_res.ok_value
+
         lsid = None
         if opts.use_ctx_msid_as_lsid:
             # by default we publish as response to current message, so we
@@ -841,7 +828,7 @@ class ServerBus(Singleton):
             msid_res = self.get_ctx_key("msid")
             if isinstance(msid_res, Err):
                 return msid_res
-            lsid = msid_res.ok
+            lsid = msid_res.ok_value
             assert isinstance(lsid, str)
 
         target_connsids = None
@@ -851,8 +838,8 @@ class ServerBus(Singleton):
             # try to get ctx connsid, otherwise left as none
             connsid_res = self.get_ctx_key("connsid")
             if isinstance(connsid_res, Ok):
-                assert isinstance(connsid_res.ok, str)
-                target_connsids = [connsid_res.ok]
+                assert isinstance(connsid_res.ok_value, str)
+                target_connsids = [connsid_res.ok_value]
 
         msg = Msg(
             lsid=lsid,
@@ -864,13 +851,12 @@ class ServerBus(Singleton):
         if isinstance(r, Err):
             return r
 
-        if opts. is not None:
+        if opts.subfn is not None:
             if msg.msid in self._lsid_to_msg_and_subfn:
-                raise AlreadyProcessedErr(f"{msg} for pubr")
-            self._lsid_to_msg_and_subfn[msg.msid] = (msg, subfn)
+                return Err(AlreadyProcessedErr(f"{msg} for pubr"))
+            self._lsid_to_msg_and_subfn[msg.msid] = (msg, opts.subfn)
 
-        mtype = type(msg)
-        self._type_to_last_msg[mtype] = msg
+        self._code_to_last_mdata[code] = data
 
         # SEND ORDER
         #
@@ -1049,3 +1035,22 @@ class ServerBus(Singleton):
             return False
 
         return True
+
+    def _check_norpc_mdata(
+            self, data: Mdata | type[Mdata], disp_ctx: str) -> Res[None]:
+        """
+        Since rpc msgs cannot participate in actions like "sub" and "pub",
+        we have a separate fn to check this.
+        """
+        iscls = isclass(data)
+        if (
+            (
+                iscls
+                and (issubclass(data, SrpcSend) or issubclass(data, SrpcRecv)))
+            or (
+                not iscls
+                and (isinstance(data, (SrpcSend, SrpcRecv))))):
+            return Err(ValErr(
+                f"mdata {data} in context of \"{disp_ctx}\" cannot be associated"
+                " with rpc"))
+        return Ok(None)
