@@ -12,7 +12,8 @@ from result import Err, Ok
 
 from rxcat._err import ErrDto
 
-MsgData = Any
+TMdata = TypeVar("TMdata")
+Mdata = Any
 """
 Any custom data bus user interested in. Must be serializable and implement
 `code() -> str` method.
@@ -25,9 +26,9 @@ class CodedMsgData(BaseModel):
     Msg data coupled with identification code.
     """
     code: str
-    data: MsgData
+    data: Mdata
 
-def get_msg_data_code(data: MsgData) -> Res[str]:
+def get_msg_data_code(data: Mdata) -> Res[str]:
     if isinstance(data, CodedMsgData):
         code = data.code
     else:
@@ -97,7 +98,7 @@ class Msg(BaseModel):
     To which connsids the published msg should be addressed.
     """
 
-    data: MsgData
+    data: Mdata
 
     skip__err: Exception | None = None
     """

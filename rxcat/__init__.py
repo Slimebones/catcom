@@ -41,14 +41,13 @@ from result import Err, Ok, UnwrapError
 from rxcat._code import CodeStorage
 from rxcat._err import ErrDto
 from rxcat._msg import (
-    MsgData,
-    ErrEvt,
+    Mdata,
     Msg,
     Register,
     TMsg,
     Welcome,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcEvt, SrpcSend, TRpcFn
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcSend, SrpcRecv, TRpcFn
 from rxcat._transport import (
     ActiveTransport,
     Conn,
@@ -69,10 +68,12 @@ __all__ = [
     "ResourceServerErr",
     "RegisterFn",
 
-    "MsgData",
+    "Mdata",
 
     "RpcFn",
     "srpc",
+    "SrpcSend",
+    "SrpcRecv",
     "EmptyRpcArgs",
 
     "Conn",
@@ -97,9 +98,9 @@ def srpc():
 #   make child of pykit.InternalErr (as it gets implementation) - to be able
 #   to enable/disable internal errors sending to net (and additionally log
 #   them by the server bus)
-@code("resource_server_err")
 class ResourceServerErr(Exception):
-    pass
+    def code(self) -> str:
+        return "rxcat__resource_server_err"
 
 class ServerRegisterData(BaseModel):
     """
@@ -122,23 +123,34 @@ class RegisterFn(Protocol):
         tokens: list[str],
         client_data: dict[str, Any] | None) -> Res[ServerRegisterData]: ...
 
-class internal__InvokedActionUnhandledErr(Exception):
+class Internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
         super().__init__(
             f"invoked {action} unhandled err: {err!r}"
         )
 
-class internal__BusUnhandledErr(Exception):
+class Internal__BusUnhandledErr(Exception):
     def __init__(self, err: Exception):
         super().__init__(
             f"bus unhandled err: {err}"
         )
 
 SubFn = Callable[
-    [MsgData],
-    Awaitable[Res[MsgData | list[MsgData] | None] | None]]
+    [Mdata],
+    Awaitable[Res[Mdata | list[Mdata] | None] | None]]
 
 class PubOpts(BaseModel):
+    subfn: SubFn
+
+    target_connsids: list[str] | None = None
+    """
+    Connection sids to publish to.
+
+    Defaults to ctx connsid, if exists.
+    """
+
+    use_ctx_msid_as_lsid: bool = False
+
     must_send_to_inner: bool = True
 
     must_send_to_net: bool = True
@@ -177,27 +189,6 @@ class SubFnData(BaseModel):
     Subsids to be safely removed to not break any iteration cycles or
     other stuff.
     """
-
-    class Config:
-        arbitrary_types_allowed = True
-
-class CtxVar(Enum):
-    """
-    Defines access mechanism to some context variable.
-
-    Values:
-        - Default: access according to the associated field. For example for
-                   "lsid = CtxVar.Default", the "msid" var will be accessed,
-                   to respond to the current message.
-        - ...further values correspond to actual context fields
-    """
-    Default = 0,
-    Msid = 1,
-    Connsid = 2
-
-class LinkedSubFnData(BaseModel):
-    fn: SubFn
-    lsid: str | CtxVar = CtxVar.Default
 
     class Config:
         arbitrary_types_allowed = True
@@ -289,7 +280,7 @@ class ServerBus(Singleton):
         self._preserialized_initd_client_evt: dict = {}
         self._initd_client_evt_mcodeid: int | None = None
 
-        self._lsid_to_inpdata_and_subfn: dict[str, tuple[MsgData, SubFn]] = {}
+        self._lsid_to_msg_and_subfn: dict[str, tuple[Msg, SubFn]] = {}
         self._lsids_to_del_on_next_pubfn: set[str] = set()
 
         self._is_initd = True
@@ -373,34 +364,36 @@ class ServerBus(Singleton):
         cls._code_to_rpcfn[code] = (fn, args_type)
         return Ok(None)
 
-    def _checkthrow_norpc_msg(self, msg: Msg | type[Msg], ctx: str):
+    def _check_norpc_mdata(
+            self, data: Mdata | type[Mdata], disp_ctx: str) -> Res[None]:
         """
         Since rpc msgs cannot participate in actions like "sub" and "pub",
         we have a separate fn to check this.
         """
-        iscls = isclass(msg)
+        iscls = isclass(data)
         if (
             (
                 iscls
-                and (issubclass(msg, SrpcSend) or issubclass(msg, SrpcEvt)))
+                and (issubclass(data, SrpcSend) or issubclass(data, SrpcRecv)))
             or (
                 not iscls
-                and (isinstance(msg, (SrpcEvt, SrpcSend))))):
-            raise ValErr(
-                f"msg {msg} in context of \"{ctx}\" cannot be associated with"
-                " rpc")
+                and (isinstance(data, (SrpcSend, SrpcRecv))))):
+            return Err(ValErr(
+                f"mdata {data} in context of \"{disp_ctx}\" cannot be associated"
+                " with rpc"))
+        return Ok(None)
 
     async def throw(
         self,
         err: Exception,
-        triggered_msg: Msg | None = None,
+        lsid: str | CtxVar | None = None,
         pub_opts: PubOpts = PubOpts(),
         *,
-        m_to_connsids: list[str] | None = None,
+        target_connsids: list[str] | None = None,
         is_thrown_by_pubfn: bool | None = None
     ):
         """
-        Pubs ThrownErrEvt.
+        Pubs err.
 
         If given err has no code attached, the default is
         used.
@@ -434,17 +427,10 @@ class ServerBus(Singleton):
                 err = ResourceServerErr(
                     f"got res with err value {res_err_value},"
                     " which is not an instance of Exception")
-        lsid: str | None = None
-        if isinstance(triggered_msg, Evt):
-            lsid = triggered_msg.lsid
-        elif isinstance(triggered_msg, Req):
-            lsid = triggered_msg.msid
-        else:
-            assert triggered_msg is None
 
         final_to_connsids = []
-        if m_to_connsids is not None:
-            final_to_connsids = m_to_connsids
+        if target_connsids is not None:
+            final_to_connsids = target_connsids
         elif triggered_msg and triggered_msg.skip__connsid is not None:
             final_to_connsids = [triggered_msg.skip__connsid]
 
@@ -725,7 +711,7 @@ class ServerBus(Singleton):
         mtype: type[TMsg],
         action: SubFn,
         opts: SubOpts = SubOpts(),
-    ) -> Callable:
+    ) -> Res[Callable]:
         """
         Subscribes to certain message.
 
@@ -742,7 +728,9 @@ class ServerBus(Singleton):
         Returns:
             Unsubscribe function.
         """
-        self._checkthrow_norpc_msg(mtype, "subscription")
+        r = self._check_norpc_mdata(mtype, "subscription")
+        if isinstance(r, Err):
+            return r
         subsid = RandomUtils.makeid()
         subfn = SubFnData(
             sid=subsid, fn=typing.cast(Callable, action), opts=opts)
@@ -760,7 +748,7 @@ class ServerBus(Singleton):
                 last_msg
             )
 
-        return functools.partial(self.unsub, subsid)
+        return Ok(functools.partial(self.unsub, subsid))
 
     async def unsub(self, subsid: str) -> Res[None]:
         if subsid not in self._subsid_to_mtype:
@@ -786,9 +774,9 @@ class ServerBus(Singleton):
 
     async def pubr(
         self,
-        data: MsgData,
+        data: Mdata,
         opts: PubOpts = PubOpts()
-    ) -> MsgData:
+    ) -> Mdata:
         """
         Publishes a message and awaits for the response.
         """
@@ -836,27 +824,50 @@ class ServerBus(Singleton):
 
         return pointer.target
 
+    def get_ctx_key(self, key: str) -> Res[Any]:
+        val = _rxcat_ctx.get().get(key, None)
+        if val:
+            return Ok(val)
+        return Err(NotFoundErr(f"\"{key}\" entry in rxcat ctx"))
+
     async def pub(
-        self,
-        data: MsgData,
-        lsubfn: LinkedSubFnData | None = None,
-        opts: PubOpts = PubOpts(),
-    ):
+            self,
+            data: Mdata,
+            opts: PubOpts = PubOpts()) -> Res[None]:
+        lsid = None
+        if opts.use_ctx_msid_as_lsid:
+            # by default we publish as response to current message, so we
+            # use the current's message sid as linked sid
+            msid_res = self.get_ctx_key("msid")
+            if isinstance(msid_res, Err):
+                return msid_res
+            lsid = msid_res.ok
+            assert isinstance(lsid, str)
+
+        target_connsids = None
+        if opts.target_connsids:
+            target_connsids = opts.target_connsids
+        else:
+            # try to get ctx connsid, otherwise left as none
+            connsid_res = self.get_ctx_key("connsid")
+            if isinstance(connsid_res, Ok):
+                assert isinstance(connsid_res.ok, str)
+                target_connsids = [connsid_res.ok]
+
         msg = Msg(
-            lsid=lsubfn.lsid if lsubfn else None
+            lsid=lsid,
+            data=data,
+            skip__target_connsids=target_connsids
         )
 
-        self._checkthrow_norpc_msg(msg, "publication")
-        if subfn is not None and not isinstance(msg, Req):
-            raise InpErr(f"for defined pubfn, {msg} should be req")
+        r = self._check_norpc_mdata(msg, "publication")
+        if isinstance(r, Err):
+            return r
 
-        if (
-            isinstance(msg, Req)
-            and subfn is not None
-        ):
-            if msg.msid in self._lsid_to_inpdata_and_subfn:
+        if opts. is not None:
+            if msg.msid in self._lsid_to_msg_and_subfn:
                 raise AlreadyProcessedErr(f"{msg} for pubr")
-            self._lsid_to_inpdata_and_subfn[msg.msid] = (msg, subfn)
+            self._lsid_to_msg_and_subfn[msg.msid] = (msg, subfn)
 
         mtype = type(msg)
         self._type_to_last_msg[mtype] = msg
@@ -875,6 +886,8 @@ class ServerBus(Singleton):
 
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
+
+        return Ok(None)
 
     async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
         subfns = self._mtype_to_subfns[mtype]
@@ -929,7 +942,7 @@ class ServerBus(Singleton):
         if not evt.lsid:
             return
 
-        req_and_pubfn = self._lsid_to_inpdata_and_subfn.get(
+        req_and_pubfn = self._lsid_to_msg_and_subfn.get(
             evt.lsid,
             None
         )
@@ -944,9 +957,9 @@ class ServerBus(Singleton):
             await self._try_call_pubfn(pubfn, req, evt)
 
     def _try_del_pubfn(self, lsid: str) -> bool:
-        if lsid not in self._lsid_to_inpdata_and_subfn:
+        if lsid not in self._lsid_to_msg_and_subfn:
             return False
-        del self._lsid_to_inpdata_and_subfn[lsid]
+        del self._lsid_to_msg_and_subfn[lsid]
         return True
 
     async def _try_call_pubfn(
@@ -966,7 +979,7 @@ class ServerBus(Singleton):
             await self.throw(
                 err,
                 evt,
-                m_to_connsids=req.skip__target_connsids,
+                target_connsids=req.skip__target_connsids,
                 is_thrown_by_pubfn=True
             )
             f = False
