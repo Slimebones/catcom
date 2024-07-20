@@ -38,7 +38,6 @@ from pykit.res import Res, eject
 from pykit.singleton import Singleton
 from result import Err, Ok, UnwrapError
 
-from rxcat._code import CodeStorage
 from rxcat._err import ErrDto
 from rxcat._msg import (
     get_mdata_code,
@@ -63,8 +62,7 @@ from rxcat._ws import Ws
 __all__ = [
     "ServerBus",
     "SubFn",
-    "LinkedSubFnData",
-    "CtxVar",
+    "get_mdata_code",
 
     "ResourceServerErr",
     "RegisterFn",
@@ -229,11 +227,6 @@ class ServerBusCfg(BaseModel):
     sub_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
     rpc_ctxfn: Callable[[SrpcSend], Awaitable[CtxManager]] | None = None
 
-    are_errs_catchlogged: bool = False
-    """
-    Whether to catch and reraise thrown to the bus errors.
-    """
-
     class Config:
         arbitrary_types_allowed = True
 
@@ -264,18 +257,12 @@ class ServerBus(Singleton):
 
         self._init_transports()
 
-        FcodeCore.defcode("rxcat_fallback_err", Exception)
-        # only server is able to index mcodes, client is not able to send
-        # theirs mcodes on conn, so the server must know client codes at boot
-
-        CodeStorage.update()
-
         self._sid_to_conn: dict[str, Conn] = {}
 
         self._subsid_to_code: dict[str, str] = {}
         self._subsid_to_subfndata: dict[str, SubFnData] = {}
-        self._mtype_to_subfns: \
-            dict[type[Msg], list[SubFnData]] = {}
+        self._code_to_subfns: \
+            dict[str, list[SubFnData]] = {}
         self._code_to_last_mdata: dict[str, Mdata] = {}
 
         self._preserialized_initd_client_evt: dict = {}
@@ -364,71 +351,6 @@ class ServerBus(Singleton):
 
         cls._code_to_rpcfn[code] = (fn, args_type)
         return Ok(None)
-
-    async def throw(
-        self,
-        err: Exception,
-        lsid: str | CtxVar | None = None,
-        pub_opts: PubOpts = PubOpts(),
-        *,
-        target_connsids: list[str] | None = None,
-        is_thrown_by_pubfn: bool | None = None
-    ):
-        """
-        Pubs err.
-
-        If given err has no code attached, the default is
-        used.
-
-        The thrown err evt will be sent to connections if one of is true:
-            - the triggered msg has conn id attached
-            - the m_to_connsids field is given
-
-        If both is true, the m_to_connsids will be used as override.
-
-        result.UnwrapError will be fetched for the Result's err_value, and
-        checked that this value is an instance of Exception before making
-        it as the final sent err.
-
-        Args:
-            err:
-                Err to throw as evt.
-            triggered_msg:
-                Msg which caused an error. If the msg is Evt with lsid
-                defined, it will be send back to the requestor.
-            pub_opts:
-                Extra pub opts to send to Bus.pub method.
-        """
-        if isinstance(err, UnwrapError):
-            res = err.result
-            assert isinstance(res, Err)
-            res_err_value = res.err_value
-            if isinstance(res_err_value, Exception):
-                err = res_err_value
-            else:
-                err = ResourceServerErr(
-                    f"got res with err value {res_err_value},"
-                    " which is not an instance of Exception")
-
-        final_to_connsids = []
-        if target_connsids is not None:
-            final_to_connsids = target_connsids
-        elif triggered_msg and triggered_msg.skip__connsid is not None:
-            final_to_connsids = [triggered_msg.skip__connsid]
-
-        evt = ErrEvt(
-            err=ErrDto.create(
-                err, CodeStorage.try_get_errcodeid_for_errtype(type(err))),
-            skip__err=err,
-            lsid=lsid,
-            skip__target_connsids=final_to_connsids,
-            internal__is_thrown_by_pubfn=is_thrown_by_pubfn
-        )
-
-        log.err(f"thrown err evt: {evt}", 1)
-        if self._cfg.are_errs_catchlogged:
-            log.catch(err)
-        await self.pub(evt, None, pub_opts)
 
     async def postinit(self):
         # update codes for the second time to catch up all defined
@@ -717,9 +639,9 @@ class ServerBus(Singleton):
         subfn = SubFnData(
             sid=subsid, fn=typing.cast(Callable, action), opts=opts)
 
-        if mtype not in self._mtype_to_subfns:
-            self._mtype_to_subfns[mtype] = []
-        self._mtype_to_subfns[mtype].append(subfn)
+        if mtype not in self._code_to_subfns:
+            self._code_to_subfns[mtype] = []
+        self._code_to_subfns[mtype].append(subfn)
         self._subsid_to_subfndata[subsid] = subfn
         self._subsid_to_code[subsid] = mtype
 
@@ -736,7 +658,7 @@ class ServerBus(Singleton):
         if subsid not in self._subsid_to_code:
             return Err(ValErr(f"sub with id {subsid} not found"))
 
-        assert self._subsid_to_code[subsid] in self._mtype_to_subfns
+        assert self._subsid_to_code[subsid] in self._code_to_subfns
 
         msg_type = self._subsid_to_code[subsid]
 
@@ -744,7 +666,7 @@ class ServerBus(Singleton):
         assert subsid in self._subsid_to_subfndata, "all maps must be synced"
         del self._subsid_to_code[subsid]
         del self._subsid_to_subfndata[subsid]
-        del self._mtype_to_subfns[msg_type]
+        del self._code_to_subfns[msg_type]
         return Ok(None)
 
     async def unsub_many(
@@ -816,10 +738,29 @@ class ServerBus(Singleton):
             self,
             data: Mdata,
             opts: PubOpts = PubOpts()) -> Res[None]:
+        """
+        Publishes data to the bus.
+
+        Received Exception instance will be parsed to ErrDto. If it is an
+        UnwrapError, it's value will be retrieved, validated as an Exception,
+        and then parsed to ErrDto.
+        """
         code_res = get_mdata_code(data)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.ok_value
+
+        if isinstance(data, Exception):
+            if isinstance(data, UnwrapError):
+                res = data.result
+                assert isinstance(res, Err)
+                if isinstance(res.err_value, Exception):
+                    data = res.err_value
+                else:
+                    data = ResourceServerErr(
+                        f"got res with err value {res.err_value},"
+                        " which is not an instance of Exception")
+            data = ErrDto.create(data)
 
         lsid = None
         if opts.use_ctx_msid_as_lsid:
@@ -865,9 +806,9 @@ class ServerBus(Singleton):
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.must_send_to_net:
-            await self._pub_to_net(mtype, msg, opts)
+            await self._pub_to_net(code, msg, opts)
 
-        if opts.must_send_to_inner and mtype in self._mtype_to_subfns:
+        if opts.must_send_to_inner and code in self._code_to_subfns:
             await self._send_to_inner_bus(mtype, msg)
 
         if isinstance(msg, Evt):
@@ -876,7 +817,7 @@ class ServerBus(Singleton):
         return Ok(None)
 
     async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
-        subfns = self._mtype_to_subfns[mtype]
+        subfns = self._code_to_subfns[mtype]
         if not subfns:
             await self.throw(ValErr(
                 f"no subfns for msg type {mtype}"))
@@ -966,7 +907,7 @@ class ServerBus(Singleton):
                 err,
                 evt,
                 target_connsids=req.skip__target_connsids,
-                is_thrown_by_pubfn=True
+                is_thrown_by_lsubfn=True
             )
             f = False
         if not evt.skip__is_continious:
