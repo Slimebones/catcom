@@ -26,6 +26,7 @@ from typing import (
     Protocol,
     runtime_checkable,
 )
+from pykit.uuid import uuid4
 
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValErr
@@ -151,12 +152,7 @@ class PubOpts(BaseModel):
     Will send to net if True and code is defined for the msg passed.
     """
 
-    pubr_must_ignore_err_evt: bool = False
-    """
-    Whether pubr must ignore returned ErrEvt and return it as it is.
-    """
-
-    pubr_timeout: float | None = None
+    pubr__timeout: float | None = None
     """
     Timeout of awaiting for published message response arrival. Defaults to
     None, which means no timeout is set.
@@ -505,8 +501,12 @@ class ServerBus(Singleton):
                 with contextlib.suppress(Exception):
                     # we don't pass whole conn to avoid control leaks
                     await transport.on_recv(conn.sid, rmsg)
-            msg = await self.parse_rmsg(rmsg, conn)
-            await self._accept_net_msg(msg)
+            msg_res = await self.parse_rmsg(rmsg, conn)
+            if isinstance(msg_res, Err):
+                log.err(f"err during rmsg {rmsg} parsing #stacktrace")
+                log.catch(msg_res.errval)
+                continue
+            await self._accept_net_msg(msg_res.okval)
 
     async def _process_out_queue(
             self,
@@ -523,12 +523,10 @@ class ServerBus(Singleton):
 
             await conn.send(rmsg)
 
-    async def _accept_net_msg(self, msg: Msg | None):
-        if msg is None:
-            return
-        elif isinstance(msg.data, SrpcRecv):
+    async def _accept_net_msg(self, msg: Msg):
+        if isinstance(msg.data, SrpcRecv):
             log.err(
-                f"server bus won't accept RpcEvt messages, got {msg}"
+                f"server bus won't accept RpcSend messages, got {msg}"
                 " => skip")
             return
         elif isinstance(msg.data, SrpcSend):
@@ -607,8 +605,8 @@ class ServerBus(Singleton):
 
     async def sub(
         self,
-        mtype: type[TMsg],
-        action: SubFn,
+        datatype: type[Mdata] | str,
+        fn: SubFn,
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable]:
         """
@@ -618,8 +616,9 @@ class ServerBus(Singleton):
         called.
 
         Args:
-            mtype:
-                Message type to subscribe to.
+            datatype:
+                Data implementing ``code() -> str`` method or direct code
+                to subscribe to.
             action:
                 Action to fire once the messsage has arrived.
             opts (optional):
@@ -627,25 +626,36 @@ class ServerBus(Singleton):
         Returns:
             Unsubscribe function.
         """
-        r = self._check_norpc_mdata(mtype, "subscription")
+        r = self._check_norpc_mdata(datatype, "subscription")
         if isinstance(r, Err):
             return r
-        subsid = RandomUtils.makeid()
+        subsid = uuid4()
         subfn = SubFnData(
-            sid=subsid, fn=typing.cast(Callable, action), opts=opts)
+            sid=subsid, fn=typing.cast(Callable, fn), opts=opts)
 
-        if mtype not in self._code_to_subfns:
-            self._code_to_subfns[mtype] = []
-        self._code_to_subfns[mtype].append(subfn)
+        code: str
+        if isinstance(datatype, str):
+            code = datatype
+            validate_res = Code.validate(code)
+            if isinstance(validate_res, Err):
+                return validate_res
+        else:
+            code_res = Code.get_from_type(datatype)
+            if isinstance(code_res, Err):
+                return code_res
+            code = code_res.okval
+        if code not in self._code_to_subfns:
+            self._code_to_subfns[code] = []
+        self._code_to_subfns[code].append(subfn)
         self._subsid_to_subfndata[subsid] = subfn
-        self._subsid_to_code[subsid] = mtype
+        self._subsid_to_code[subsid] = code
 
-        if opts.must_receive_last_msg and mtype in self._code_to_last_mdata:
-            last_msg = self._code_to_last_mdata[mtype]
+        if opts.must_receive_last_msg and code in self._code_to_last_mdata:
+            last_data = self._code_to_last_mdata[code]
+            # don't care if subfn call failed
             await self._try_call_subfn(
                 subfn,
-                last_msg
-            )
+                last_data)
 
         return Ok(functools.partial(self.unsub, subsid))
 
@@ -669,59 +679,45 @@ class ServerBus(Singleton):
         sids: list[str],
     ) -> None:
         for sid in sids:
-            await self.unsub(sid)
+            (await self.unsub(sid)).ignore()
 
     async def pubr(
         self,
         data: Mdata,
         opts: PubOpts = PubOpts()
-    ) -> Mdata:
+    ) -> Res[Mdata]:
         """
         Publishes a message and awaits for the response.
+
+        If the response is Exception, it is wrapped to res::Err.
         """
         aevt = asyncio.Event()
-        pointer = Pointer(target=Evt(lsid=""))
+        ptr: Pointer[Mdata] = Pointer(target=None)
 
-        def wrapper(aevt: asyncio.Event, evtf_pointer: Pointer[Evt]):
-            async def pubfn(_, evt: Evt):
+        def wrapper(aevt: asyncio.Event, ptr: Pointer[Mdata]):
+            async def fn(data: Mdata):
                 aevt.set()
-                # set if even ErrEvt is returned. It will be handled outside
-                # this wrapper, or ignored to be returned to the caller,
-                # if opts.pubr_must_ignore_err_evt is given.
-                evtf_pointer.target = evt
+                ptr.target = data
+            return fn
 
-            return pubfn
-
-        await self.pub(
-            req,
-            wrapper(aevt, pointer),
-            opts
-        )
-        if opts.pubr_timeout is None:
+        if opts.subfn is not None:
+            log.warn("don't pass PubOpts.subfn to pubr, it gets overwritten")
+        opts.subfn = wrapper(aevt, ptr)
+        pub_res = await self.pub(data, opts)
+        if isinstance(pub_res, Err):
+            return pub_res
+        if opts.pubr__timeout is None:
             await aevt.wait()
         else:
-            await asyncio.wait_for(aevt.wait(), opts.pubr_timeout)
-        assert pointer.target
-        assert \
-            type(pointer.target) is not Evt, \
-            "usage of base evt class detected," \
-                " or probably pubr pubfn worked incorrectly"
+            try:
+                await asyncio.wait_for(aevt.wait(), opts.pubr__timeout)
+            except asyncio.TimeoutError as err:
+                return Err(err)
 
-        if (
-            isinstance(pointer.target, ErrEvt)
-            and not opts.pubr_must_ignore_err_evt
-        ):
-            final_err = pointer.target.skip__err
-            if not final_err:
-                log.warn(
-                    f"on pubr got err evt {pointer.target} without"
-                     " inner_err attached, which is strange and unexpected"
-                     " => use default Exception"
-                )
-                final_err = Exception(pointer.target.err.msg)
-            raise final_err
+        if (isinstance(ptr.target, Exception)):
+            return Err(ptr.target)
 
-        return pointer.target
+        return Ok(ptr.target)
 
     def get_ctx_key(self, key: str) -> Res[Any]:
         val = _rxcat_ctx.get().get(key, None)

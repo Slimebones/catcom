@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 aiohttp = {extras = ["speedups"], version = "^3.9.3"}
-pykit = {git = "https://github.com/slimebones/pykit.git", rev = "0.9.1"}
+pykit = {git = "https://github.com/slimebones/pykit.git", rev = "0.9.2"}
 
 [tool.poetry.group.dev.dependencies]
 lorem = "^0.1.1"
