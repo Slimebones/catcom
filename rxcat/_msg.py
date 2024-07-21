@@ -176,7 +176,8 @@ class Msg(BaseModel):
             if k == "msid":
                 is_msid_found = True
                 continue
-            # all inner keys are deleted from the final serialization
+            # all internal or skipped keys are deleted from the final
+            # serialization
             if (
                     v is None
                     or k.startswith(("internal__", "skip__"))):
@@ -190,12 +191,38 @@ class Msg(BaseModel):
         return res
 
     @classmethod
-    def deserialize_from_net(cls, data: dict) -> Self:
+    def deserialize_from_net(cls, data: dict) -> Res[Self]:
         """Recovers model of this class using dictionary."""
+        # parse mdata separately according to it's registered type
+        custom = data.get("data", None)
+        if "code" not in data:
+            return Err(ValErr(f"data {data} must have \"code\" field"))
+        code = data["code"]
+        if code not in CodeStorage.code_to_type:
+            return Err(ValErr(f"unregistered code {code}"))
+        custom_type = CodeStorage.code_to_type[code]
+        deserialize_custom = getattr(custom_type, "deserialize", None)
+        if issubclass(custom_type, BaseModel):
+            if not isinstance(custom, dict):
+                return Err(ValErr(
+                    "if custom type is BaseModel, data must be dict,"
+                    f" got {data}"))
+            custom = custom_type(**custom)
+        elif deserialize_custom is not None:
+            custom = deserialize_custom(custom)
+        else:
+            custom = custom_type(custom)
+
         if "lsid" not in data:
             data["lsid"] = None
 
-        return cls(**data)
+        data = data.copy()
+        # don't do redundant serialization of Any type
+        if "data" in data:
+            del data["data"]
+        model = cls.model_validate(data.copy())
+        model.data = custom
+        return Ok(model)
 
 TMsg = TypeVar("TMsg", bound=Msg)
 
