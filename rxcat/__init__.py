@@ -267,8 +267,7 @@ class ServerBus(Singleton):
             dict[str, list[SubFnData]] = {}
         self._code_to_last_mdata: dict[str, Mdata] = {}
 
-        self._preserialized_initd_client_evt: dict = {}
-        self._initd_client_evt_mcodeid: int | None = None
+        self._preserialized_welcome_msg: dict = {}
 
         self._lsid_to_msg_and_subfn: dict[str, tuple[Msg, SubFn]] = {}
         self._lsids_to_del_on_next_pubfn: set[str] = set()
@@ -355,23 +354,9 @@ class ServerBus(Singleton):
         return Ok(None)
 
     async def postinit(self):
-        # update codes for the second time to catch up all defined
-        # ones
-        CodeStorage.update()
-        # restrict any further code defines since we start sending code data
-        # to clients
-        FcodeCore.deflock = True
-
-        if self._initd_client_evt_mcodeid is None:
-            mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(Welcome))
-            self._initd_client_evt_mcodeid = mcodeid
-
-        if not self._preserialized_initd_client_evt:
-            self._preserialized_initd_client_evt = Welcome(
-                indexed_mcodes=CodeStorage.indexed_mcodes,
-                indexed_errcodes=CodeStorage.indexed_errcodes,
-                lsid=None
-            ).serialize_for_net(self._initd_client_evt_mcodeid)
+        if not self._preserialized_welcome_msg:
+            self._preserialized_welcome_msg = Msg(
+                data=Welcome()).serialize_for_net()
         self._is_post_initd = True
 
     @classmethod
@@ -415,7 +400,7 @@ class ServerBus(Singleton):
         try:
             if atransport.transport.server__register_process == "register_req":
                 eject(await self._read_first_msg(conn, atransport))
-            await conn.send(self._preserialized_initd_client_evt)
+            await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
         finally:
             if not conn.is_closed:
@@ -794,6 +779,7 @@ class ServerBus(Singleton):
 
         msg = Msg(
             lsid=lsid,
+            code=code,
             data=data,
             skip__target_connsids=target_connsids
         )

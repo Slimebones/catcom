@@ -98,6 +98,9 @@ class Msg(BaseModel):
     To which connsids the published msg should be addressed.
     """
 
+    # since we won't change data type for an existing message, we keep
+    # code with the data
+    code: str
     data: Mdata
 
     skip__err: Exception | None = None
@@ -145,11 +148,10 @@ class Msg(BaseModel):
 
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
-    def serialize_for_net(self, mcodeid: int) -> dict:
-        res: dict = self.model_dump()
+    def serialize_for_net(self) -> dict:
+        res = self.model_dump()
 
-        # DEL SERVER MSG FIELDS
-        #       we should do these before key deletion setup
+        # del server msg fields - we should do these before key deletion setup
         if "skip__connsid" in res and res["skip__connsid"] is not None:
             # connsids must exist only inside server bus, it's probably an err
             # if a msg is tried to be serialized with connsid, but we will
@@ -176,19 +178,11 @@ class Msg(BaseModel):
         for k in keys_to_del:
             del res[k]
 
-        # for json field "codeidsize" is not required - codeid is always
-        # 32 bits (or whatever json default int size is)
-        res["mcodeid"] = mcodeid
-
         return res
 
     @classmethod
     def deserialize_from_net(cls, data: dict) -> Self:
         """Recovers model of this class using dictionary."""
-
-        if "mcodeid" in data:
-            del data["mcodeid"]
-
         if "lsid" not in data:
             data["lsid"] = None
 
@@ -196,38 +190,15 @@ class Msg(BaseModel):
 
 TMsg = TypeVar("TMsg", bound=Msg)
 
+# lowercase to not conflict with result.Ok
 class ok:
-    """
-    Confirm that a req processed successfully.
-
-    This evt should have a lsid defined, otherwise it is pointless since
-    it is too general.
-    """
-
     def code(self) -> str:
         return "rxcat__ok"
 
 class Welcome(BaseModel):
     """
     Welcome evt sent to every connected client.
-
-    Contains information required to survive in harsh rx environment.
     """
-
-    indexed_mcodes: list[list[str]]
-    """
-    Collection of active and legacy mcodes, indexed by their mcodeid,
-    first mcode under each index's list is an active one.
-    """
-
-    indexed_errcodes: list[list[str]]
-    """
-    Collection of active and legacy errcodes, indexed by their
-    errcodeid, first errcode under each index's list is an active one.
-    """
-
-    # ... here an additional info how to behave properly on the bus can be sent
-
     def code(self) -> str:
         return "rxcat__welcome"
 
