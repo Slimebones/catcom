@@ -77,15 +77,15 @@ async def test_inner_pubsub(server_bus: ServerBus):
     assert is_msg2_arrived
 
 async def test_evt_serialization(server_bus: ServerBus) -> None:
-    msg1_mcodeid = eject(CodeStorage.get_mcodeid_for_mtype(MockEvt_1))
+    msg1_datacodeid = eject(CodeStorage.get_datacodeid_for_mtype(MockEvt_1))
 
     m = MockEvt_1(num=1, lsid=None)
 
-    sm = m.serialize_for_net(msg1_mcodeid)
+    sm = m.serialize_for_net(msg1_datacodeid)
 
     assert sm == {
         "msid": m.msid,
-        "mcodeid": msg1_mcodeid,
+        "datacodeid": msg1_datacodeid,
         "num": m.num
     }
 

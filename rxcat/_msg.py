@@ -88,7 +88,7 @@ class Msg(BaseModel):
         codeid_res = await Code.get_registered_codeid(self.skip__datacode)
         if isinstance(codeid_res, Err):
             return codeid_res
-        final["codeid"] = codeid_res.okval
+        final["datacodeid"] = codeid_res.okval
 
         # del server msg fields - we should do these before key deletion setup
         if "skip__connsid" in final and final["skip__connsid"] is not None:
@@ -125,10 +125,10 @@ class Msg(BaseModel):
         """Recovers model of this class using dictionary."""
         # parse mdata separately according to it's registered type
         custom = data.get("data", None)
-        if "codeid" not in data:
+        if "datacodeid" not in data:
             return Err(ValErr(f"data {data} must have \"codeid\" field"))
-        codeid = data["codeid"]
-        del data["codeid"]
+        codeid = data["datacodeid"]
+        del data["datacodeid"]
         if not isinstance(codeid, int):
             return Err(ValErr(
                 f"invalid type of codeid {codeid}, expected int"))

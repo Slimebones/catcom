@@ -1,12 +1,5 @@
 """
 Rxcat implementation for Python.
-
-Note that no string codes are used in base serialized messages, instead all of
-them are replaced by codeids, which is known at server boot and shared with
-every client on connection. For now this is two types of codes:
-    - message codes (mcode, mcodeid)
-    - error codes (errcode, errcodeid) - required since we use general
-        "ThrownErrEvt" for every err, and attach an additional "errcodeid".
 """
 
 import asyncio
@@ -829,9 +822,9 @@ class ServerBus(Singleton):
 
         # SEND ORDER
         #
-        #   1. Net (only if has mcodeid and this is in the required list)
-        #   2. Inner (always for every registered subfn)
-        #   3. As a response (only if this msg type has the associated paction)
+        #   1. Net
+        #   2. Inner
+        #   3. As a response
 
         if opts.send_to_net:
             await self._pub_to_net(msg)

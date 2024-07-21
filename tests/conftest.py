@@ -2,18 +2,16 @@ from asyncio import Queue
 from contextvars import ContextVar
 from typing import Self
 
+from pydantic import BaseModel
 import pytest_asyncio
 from pykit.err import ValErr
-from pykit.fcode import FcodeCore, code
 from pykit.res import Res
 from pykit.res import Err, Ok
 
 from rxcat import (
     Conn,
     ConnArgs,
-    Evt,
     Msg,
-    Req,
     ServerBus,
     ServerBusCfg,
     SrpcSend,
@@ -21,28 +19,23 @@ from rxcat import (
 )
 
 
-@code("rxcat_mock_evt_1")
-class MockEvt_1(Evt):
+class Mock_1(BaseModel):
     num: int
 
-@code("rxcat_mock_evt_2")
-class MockEvt_2(Evt):
+    @staticmethod
+    def code() -> str:
+        return "rxcat__mock_1"
+
+class Mock_2(BaseModel):
     num: int
 
-@code("rxcat_mock_req_1")
-class MockReq_1(Req):
-    num: int
-
-@code("rxcat_mock_req_2")
-class MockReq_2(Req):
-    num: int
+    @staticmethod
+    def code() -> str:
+        return "rxcat__mock_2"
 
 @pytest_asyncio.fixture(autouse=True)
 async def auto():
     yield
-
-    FcodeCore.deflock = False
-    FcodeCore.clean_non_decorator_codes()
     await ServerBus.destroy()
 
 @pytest_asyncio.fixture
@@ -92,13 +85,13 @@ class MockCtxManager:
     async def __aexit__(self, *args):
         return
 
-async def get_mock_ctx_manager_for_msg(msg: Msg) -> MockCtxManager:
-    return MockCtxManager()
+async def get_mock_ctx_manager_for_msg(_) -> Res[MockCtxManager]:
+    return Ok(MockCtxManager())
 
-async def get_mock_ctx_manager_for_srpc_req(req: SrpcSend) -> MockCtxManager:
-    return MockCtxManager()
+async def get_mock_ctx_manager_for_srpc_req(_) -> Res[MockCtxManager]:
+    return Ok(MockCtxManager())
 
-def find_mcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
+def find_datacodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
     for i, code_container in enumerate(rmsg["indexed_mcodes"]):
         if code in code_container:
             return Ok(i)
