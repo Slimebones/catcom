@@ -11,6 +11,7 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import contextlib
+from enum import Enum
 import functools
 import typing
 from asyncio import Queue
@@ -61,6 +62,7 @@ from pykit.code import Code, Coded, get_fqname
 __all__ = [
     "ServerBus",
     "SubFn",
+    "RetState",
     "ok",
 
     "ResourceServerErr",
@@ -129,9 +131,10 @@ class Internal__BusUnhandledErr(Exception):
             f"bus unhandled err: {err}"
         )
 
+SubFnRetval = Res[Mdata | Iterable[Mdata] | None] | None
 SubFn = Callable[
     [Mdata],
-    Awaitable[Res[Mdata | Iterable[Mdata] | None] | None]]
+    Awaitable[SubFnRetval]]
 
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
@@ -166,17 +169,33 @@ class PubOpts(BaseModel):
     None, which means no timeout is set.
     """
 
-DataFilter = Callable[[Mdata], Awaitable[bool]]
+MdataCondition = Callable[[Mdata], Awaitable[bool]]
+MdataFilter = Callable[[Mdata], Awaitable[Mdata]]
+SubFnRetvalFilter = Callable[[SubFnRetval], Awaitable[SubFnRetval]]
+
+class RetState(Enum):
+    SkipMe = 0
+    """
+    Used by subscribers to prevent any actions on it's retval, since
+    returning None will cause bus to publish Ok(None).
+    """
 
 class SubOpts(BaseModel):
     recv_last_msg: bool = True
     """
     Whether to receive last stored msg with the same data code.
     """
-    filters: list[DataFilter] | None = None
+    conditions: Iterable[MdataCondition] | None = None
     """
-    All filters should succeed before data being passed to a subscriber.
+    Conditions that must be true in order for the subscriber to be called.
+
+    Are applied to the data only after passing it through ``in_filters``.
+
+    If all conditions fail for a subscriber, it is skipped completely
+    (returns RetState.SkipMe).
     """
+    in_filters: Iterable[MdataFilter] | None = None
+    out_filters: Iterable[SubFnRetvalFilter] | None = None
 
 _rxcat_ctx = ContextVar("rxcat", default={})
 
@@ -631,8 +650,8 @@ class ServerBus(Singleton):
         if isinstance(r, Err):
             return r
         subsid = uuid4()
-        if opts.filters:
-            subfn = self._apply_filters_to_subfn(subfn, opts.filters)
+        if opts.conditions:
+            subfn = self._apply_opts_to_subfn(subfn, opts)
 
         code: str
         if isinstance(datatype, str):
@@ -896,7 +915,9 @@ class ServerBus(Singleton):
             res = await subfn.fn(msg)
 
         vals = []
-        if isinstance(res, Ok):
+        if isinstance(res, RetState):
+            return
+        elif isinstance(res, Ok):
             val = res.okval
 
             try:
@@ -930,13 +951,24 @@ class ServerBus(Singleton):
                 " with rpc"))
         return Ok(None)
 
-    def _apply_filters_to_subfn(
-            self, subfn: SubFn, filters: Iterable[DataFilter]) -> SubFn:
+    def _apply_opts_to_subfn(
+            self, subfn: SubFn, opts: SubOpts) -> SubFn:
         async def wrapper(data: Mdata) -> Any:
-            for f in filters:
-                f_out = await f(data)
-                if not f_out:
-                    return
-            # all filters passed - call the actual subfn
-            return await subfn(data)
+            if opts.in_filters:
+                for f in opts.in_filters:
+                    data = await f(data)
+
+            if opts.conditions:
+                for f in opts.conditions:
+                    f_out = await f(data)
+                    if not f_out:
+                        return RetState.SkipMe
+
+            retdata = await subfn(data)
+
+            if opts.out_filters:
+                for f in opts.out_filters:
+                    retdata = await f(retdata)
+
+            return retdata
         return wrapper

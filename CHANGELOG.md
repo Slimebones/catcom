@@ -1,4 +1,6 @@
-# 1.0.0 - UNRELEASED
+# 1.0.0
+
+Complete rebuild to data-oriented instead of msg-oriented. Some of features (but not all of them) are listed below.
 
 - updated pykit@0.8.0
 - listed public exports
