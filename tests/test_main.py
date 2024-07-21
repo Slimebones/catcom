@@ -1,7 +1,7 @@
 from pykit.check import check
 from pykit.err import ValueErr
 from pykit.res import Res, eject
-from result import Err, Ok
+from pykit.res import Err, Ok
 
 from rxcat import ErrEvt, ServerBus
 from rxcat._code import CodeStorage

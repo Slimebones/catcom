@@ -2,7 +2,7 @@ import asyncio
 
 from pykit.rand import RandomUtils
 from pykit.res import Res, eject
-from result import Ok
+from pykit.res import Ok
 
 from rxcat import (
     ConnArgs,

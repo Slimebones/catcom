@@ -5,7 +5,7 @@ from pykit.err import ValErr
 from pykit.obj import get_fully_qualified_name
 from pykit.rand import RandomUtils
 from pykit.res import Res, eject
-from result import Err, Ok
+from pykit.res import Err, Ok
 
 from rxcat import ConnArgs, ServerBus
 from tests.conftest import (

@@ -6,7 +6,7 @@ import pytest_asyncio
 from pykit.err import ValErr
 from pykit.fcode import FcodeCore, code
 from pykit.res import Res
-from result import Err, Ok
+from pykit.res import Err, Ok
 
 from rxcat import (
     Conn,

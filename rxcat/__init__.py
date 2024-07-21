@@ -29,16 +29,13 @@ from typing import (
 
 from pydantic import BaseModel
 from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValErr
-from pykit.fcode import FcodeCore, code
+from pykit.err_utils import create_err_dto
 from pykit.log import log
-from pykit.obj import get_fully_qualified_name
 from pykit.pointer import Pointer
-from pykit.rand import RandomUtils
-from pykit.res import Res, eject
+from pykit.res import Err, Ok, UnwrapErr, Res
+from pykit.err import ErrDto
 from pykit.singleton import Singleton
-from result import Err, Ok, UnwrapError
 
-from rxcat._err import ErrDto
 from rxcat._msg import (
     Mdata,
     Msg,
@@ -57,12 +54,12 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
-from rxcat._msg import CodedMsgData, Code, ok
+from rxcat._msg import ok
+from pykit.code import Code, Coded, get_fqname
 
 __all__ = [
     "ServerBus",
     "SubFn",
-    "CodedMsgData",
     "ok",
 
     "ResourceServerErr",
@@ -90,14 +87,10 @@ __all__ = [
 # placed here and not at _rpc.py to avoid circulars
 def srpc():
     def inner(target: TRpcFn) -> TRpcFn:
-        eject(ServerBus.register_rpc(target))
+        ServerBus.register_rpc(target).eject()
         return target
     return inner
 
-# TODO:
-#   make child of pykit.InternalErr (as it gets implementation) - to be able
-#   to enable/disable internal errors sending to net (and additionally log
-#   them by the server bus)
 class ResourceServerErr(Exception):
     def code(self) -> str:
         return "rxcat__resource_server_err"
@@ -260,13 +253,13 @@ class ServerBus(Singleton):
         return _rxcat_ctx.get().copy()
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
-        eject(await self.register(
+        (await self.register(
             Register,
             Welcome,
             ok,
             ErrDto,
             SrpcSend,
-            SrpcRecv))
+            SrpcRecv)).eject()
 
         self._cfg = cfg
 
@@ -325,10 +318,10 @@ class ServerBus(Singleton):
         codes_res = await Code.get_registered_codes()
         if isinstance(codes_res, Err):
             return codes_res
-        welcome = Welcome(codes=codes_res.ok_value)
-        self._preserialized_welcome_msg = eject(await Msg(
+        welcome = Welcome(codes=codes_res.okval)
+        self._preserialized_welcome_msg = (await Msg(
             skip__code=Welcome.code(),
-            data=welcome).serialize_to_net())
+            data=welcome).serialize_to_net()).eject()
         rewelcome_res = await self._rewelcome_all_conns()
         if isinstance(rewelcome_res, Err):
             return rewelcome_res
@@ -424,7 +417,7 @@ class ServerBus(Singleton):
             atransport.out_queue_processor.cancel()
 
         cls._rpccode_to_fn.clear()
-        Code._code_to_type.clear()
+        Code.destroy()
 
         ServerBus.try_discard()
 
@@ -450,7 +443,7 @@ class ServerBus(Singleton):
 
         try:
             if atransport.transport.server__register_process == "register_req":
-                eject(await self._read_first_msg(conn, atransport))
+                (await self._read_first_msg(conn, atransport)).eject()
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
         finally:
@@ -459,7 +452,7 @@ class ServerBus(Singleton):
                     await conn.close()
                 except Exception as err:
                     log.err(
-                        f"err {get_fully_qualified_name(err)} is raised"
+                        f"err {get_fqname(err)} is raised"
                         f" during conn {conn} closing, #stacktrace")
                     log.catch(err)
             if conn.sid in self._sid_to_conn:
@@ -566,7 +559,7 @@ class ServerBus(Singleton):
                 ctx_manager = await self._cfg.rpc_ctxfn(data)
             except Exception as err:
                 log.err(
-                    f"err {get_fully_qualified_name(err)} is occured"
+                    f"err {get_fqname(err)} is occured"
                     f" during rpx ctx manager retrieval for req {data} => skip")
                 log.catch(err)
                 return
@@ -580,15 +573,15 @@ class ServerBus(Singleton):
             log.warn(
                 f"unhandled exception occured for rpcfn on req {data}"
                 " => wrap it to usual RpcEvt;"
-                f" exception {get_fully_qualified_name(err)}")
+                f" exception {get_fqname(err)}")
             log.catch(err)
             res = Err(err)
 
         val: Any
         if isinstance(res, Ok):
-            val = res.ok_value
+            val = res.okval
         elif isinstance(res, Err):
-            val = eject(ErrDto.create(res.err_value))
+            val = create_err_dto(res.errval).eject()
         else:
             log.err(
                 f"rpcfn on req {data} returned non-res val {res} => skip")
@@ -788,17 +781,17 @@ class ServerBus(Singleton):
         code_res = Code.get_from_type(type(data))
         if isinstance(code_res, Err):
             return code_res
-        code = code_res.ok_value
+        code = code_res.okval
 
         if isinstance(data, Exception):
             if isinstance(data, UnwrapError):
                 res = data.result
                 assert isinstance(res, Err)
-                if isinstance(res.err_value, Exception):
-                    data = res.err_value
+                if isinstance(res.errval, Exception):
+                    data = res.errval
                 else:
                     data = ResourceServerErr(
-                        f"got res with err value {res.err_value},"
+                        f"got res with err value {res.errval},"
                         " which is not an instance of Exception")
             err = typing.cast(Exception, data)
             log.err(
@@ -814,7 +807,7 @@ class ServerBus(Singleton):
             msid_res = self.get_ctx_key("msid")
             if isinstance(msid_res, Err):
                 return msid_res
-            lsid = msid_res.ok_value
+            lsid = msid_res.okval
             assert isinstance(lsid, str)
 
         target_connsids = None
@@ -824,8 +817,8 @@ class ServerBus(Singleton):
             # try to get ctx connsid, otherwise left as none
             connsid_res = self.get_ctx_key("connsid")
             if isinstance(connsid_res, Ok):
-                assert isinstance(connsid_res.ok_value, str)
-                target_connsids = [connsid_res.ok_value]
+                assert isinstance(connsid_res.okval, str)
+                target_connsids = [connsid_res.okval]
 
         msg = Msg(
             lsid=lsid,
@@ -883,7 +876,7 @@ class ServerBus(Singleton):
     ):
         mcodeid_res = Code.get_mcodeid_for_mtype(mtype)
         if isinstance(mcodeid_res, Ok) and msg.skip__target_connsids:
-            mcodeid = mcodeid_res.ok_value
+            mcodeid = mcodeid_res.okval
             rmsg = msg.serialize_to_net(mcodeid)
             for connsid in msg.skip__target_connsids:
                 if connsid not in self._sid_to_conn:
