@@ -210,8 +210,8 @@ class ServerBusCfg(BaseModel):
     RegisterReq, but no alternative function will be called.
     """
 
-    sub_ctxfn: Callable[[Msg], Awaitable[CtxManager]] | None = None
-    rpc_ctxfn: Callable[[SrpcSend], Awaitable[CtxManager]] | None = None
+    sub_ctxfn: Callable[[Msg], Awaitable[Res[CtxManager]]] | None = None
+    rpc_ctxfn: Callable[[SrpcSend], Awaitable[Res[CtxManager]]] | None = None
 
     trace_errs_on_pub: bool = True
 
@@ -552,11 +552,12 @@ class ServerBus(Singleton):
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:
             try:
-                ctx_manager = await self._cfg.rpc_ctxfn(data)
+                ctx_manager = (await self._cfg.rpc_ctxfn(data)).eject()
             except Exception as err:
                 log.err(
                     f"err {get_fqname(err)} is occured"
-                    f" during rpx ctx manager retrieval for req {data} => skip")
+                    f" during rpx ctx manager retrieval for data {data}"
+                    " => skip; #stacktrace")
                 log.catch(err)
                 return
         try:
@@ -652,10 +653,7 @@ class ServerBus(Singleton):
 
         if opts.recv_last_msg and code in self._code_to_last_mdata:
             last_data = self._code_to_last_mdata[code]
-            # don't care if subfn call failed
-            await self._try_call_subfn(
-                subfn,
-                last_data)
+            await self._call_subfn(subfn, last_data)
 
         return Ok(functools.partial(self.unsub, subsid))
 
@@ -823,7 +821,7 @@ class ServerBus(Singleton):
             return
         removing_subfn_sids = []
         for subfn in subfns:
-            await self._try_call_subfn(subfn, msg)
+            await self._call_subfn(subfn, msg)
             if subfn.is_removing:
                 removing_subfn_sids.append(subfn.sid)
         for removing_subfn_sid in removing_subfn_sids:
@@ -874,60 +872,41 @@ class ServerBus(Singleton):
 
         return ctx_dict
 
-    async def _call_subfn(self, subfn: SubFn, msg: Msg) -> Res[None]:
+    async def _call_subfn(self, subfn: SubFn, msg: Msg):
+        """
+        Calls subfn and pubs any response captured (including errors).
+
+        Note that even None response is published as ok(None).
+        """
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
         if self._cfg.sub_ctxfn is not None:
-            ctx_manager = await self._cfg.sub_ctxfn(msg)
+            try:
+                ctx_manager = (await self._cfg.sub_ctxfn(msg)).eject()
+            except Exception as err:
+                log.err(
+                    f"err {get_fqname(err)} is occured"
+                    f" during rpx ctx manager retrieval for data {msg.data}"
+                    " => skip; #stacktrace")
+                log.catch(err)
+                return
             async with ctx_manager:
                 res = await subfn.fn(msg)
         else:
             res = await subfn.fn(msg)
 
-        if isinstance(res, (Err, Ok)):
-            val = eject(res)
-            if isinstance(val, Msg):
-                await self.pub(val)
-            elif isinstance(val, list):
-                for m in val:
-                    if isinstance(m, Msg):
-                        await self.pub(m)
-                        continue
-                    log.err(
-                        f"subscriber #{subfn.sid} returned a list"
-                        f" with a non-msg item: {m} => skip")
-            elif val is not None:
-                log.err(
-                    f"subscriber #{subfn.sid} returned an unexpected"
-                    f" object within the result: {val} => skip")
+        vals = []
+        if isinstance(res, Ok):
+            val = res.okval
+            if isinstance(val, list):
+                vals = val
+            else:
+                vals = [val]
 
-    async def _try_call_subfn(
-        self,
-        subfn: SubFnData,
-        msg: Msg
-    ) -> bool:
-        filters = subfn.opts.filters
-        for filter in filters:
-            this_filter_f = await filter(msg)
-            if not this_filter_f:
-                return False
-
-        try:
-            await self._call_subfn(subfn, msg)
-        except Exception as err:
-            if isinstance(msg, ErrEvt):
-                log.err(
-                    f"ErrEvt subscriber has returned an err {err}, which may"
-                    " result in an endless recursion => remove the subscriber,"
-                    " but send this err further")
-                # but subscriber must be removed carefully, to
-                # not break outer iteration cycles
-                subfn.is_removing = True
-                return False
-            await self.throw(err, msg)
-            return False
-
-        return True
+        for val in vals:
+            # TODO: replace ignore() with warn() as it gets available in
+            #       pykit::res
+            (await self.pub(val)).ignore()
 
     def _check_norpc_mdata(
             self, data: Mdata | type[Mdata], disp_ctx: str) -> Res[None]:
