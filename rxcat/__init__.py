@@ -320,7 +320,7 @@ class ServerBus(Singleton):
             return codes_res
         welcome = Welcome(codes=codes_res.okval)
         self._preserialized_welcome_msg = (await Msg(
-            skip__code=Welcome.code(),
+            skip__datacode=Welcome.code(),
             data=welcome).serialize_to_net()).eject()
         rewelcome_res = await self._rewelcome_all_conns()
         if isinstance(rewelcome_res, Err):
@@ -588,9 +588,13 @@ class ServerBus(Singleton):
             return
 
         # val must be any serializable by pydantic object, so here we pass it
-        # directly as field of SrpcEvt, which will do serialization
-        # automatically under the hood
-        evt = SrpcEvt(lsid=None, key=data.key, val=val).as_res_from_req(data)
+        # directly to Msg, which will do serialization automatically under the
+        # hood
+        evt = Msg(
+            lsid=msg.sid,
+            skip__target_connsids=[msg.connsid],
+            key=data.key,
+            val=val)
         await self._pub_to_net(type(evt), evt)
 
     async def parse_rmsg(
@@ -822,7 +826,7 @@ class ServerBus(Singleton):
 
         msg = Msg(
             lsid=lsid,
-            skip__code=code,
+            skip__datacode=code,
             data=data,
             skip__target_connsids=target_connsids
         )
@@ -870,14 +874,11 @@ class ServerBus(Singleton):
 
     async def _pub_to_net(
         self,
-        mtype: type,
         msg: Msg,
         opts: PubOpts = PubOpts()
     ):
-        mcodeid_res = Code.get_mcodeid_for_mtype(mtype)
-        if isinstance(mcodeid_res, Ok) and msg.skip__target_connsids:
-            mcodeid = mcodeid_res.okval
-            rmsg = msg.serialize_to_net(mcodeid)
+        if msg.skip__target_connsids:
+            rmsg = msg.serialize_to_net()
             for connsid in msg.skip__target_connsids:
                 if connsid not in self._sid_to_conn:
                     log.err(
@@ -891,7 +892,7 @@ class ServerBus(Singleton):
                         except Exception as err:
                             log.err(
                                 "during on_missing_consid fn call err"
-                                f" {get_fully_qualified_name(err)}"
+                                f" {get_fqname(err)}"
                                 " #stacktrace")
                             log.catch(err)
                     continue

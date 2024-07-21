@@ -54,7 +54,7 @@ class Msg(BaseModel):
 
     # since we won't change data type for an existing message, we keep
     # code with the data
-    skip__code: str
+    skip__datacode: str
     data: Mdata
 
     skip__err: Exception | None = None
@@ -105,7 +105,7 @@ class Msg(BaseModel):
     async def serialize_to_net(self) -> Res[dict]:
         final = self.model_dump()
 
-        codeid_res = await Code.get_registered_codeid(self.skip__code)
+        codeid_res = await Code.get_registered_codeid(self.skip__datacode)
         if isinstance(codeid_res, Err):
             return codeid_res
         final["codeid"] = codeid_res.okval
