@@ -58,7 +58,7 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
-from rxcat._msg import get_code, validate_code, CodedMsgData, CodeStorage
+from rxcat._msg import CodedMsgData, Code
 
 __all__ = [
     "ServerBus",
@@ -92,7 +92,7 @@ __all__ = [
 # placed here and not at _rpc.py to avoid circulars
 def srpc():
     def inner(target: TRpcFn) -> TRpcFn:
-        ServerBus.register_rpc(target)
+        eject(ServerBus.register_rpc(target))
         return target
     return inner
 
@@ -332,29 +332,16 @@ class ServerBus(Singleton):
         pass
 
     @classmethod
-    def register_codes(cls, types: Iterable[type]) -> Res[None]:
+    async def register_codes(cls, types: Iterable[type]) -> Res[None]:
         """
         Register codes for types.
 
         No err is raised on existing code redefinition. Err is printed on
         invalid codes.
         """
-        for t in types:
-            code_res = get_code(t)
-            if isinstance(code_res, Err):
-                log.err(
-                    f"cannot get code {code}: {code_res.err_value} => skip")
-                continue
-            code = code_res.ok_value
-
-            validate_res = validate_code(code)
-            if isinstance(validate_res, Err):
-                log.err(
-                    f"code {code} is not valid: {validate_res.err_value} => skip")
-                continue
-
-            CodeStorage.code_to_type[code] = t
-
+        updr = await Code.upd(types)
+        if isinstance(updr, Err):
+            return updr
         return Ok(None)
 
     @classmethod
@@ -409,7 +396,7 @@ class ServerBus(Singleton):
             atransport.out_queue_processor.cancel()
 
         cls._code_to_rpcfn.clear()
-        CodeStorage.code_to_type.clear()
+        Code._code_to_type.clear()
 
         ServerBus.try_discard()
 
@@ -574,7 +561,7 @@ class ServerBus(Singleton):
         elif isinstance(res, Err):
             val = ErrDto.create(
                 res.err_value,
-                CodeStorage.try_get_errcodeid_for_errtype(type(res.err_value)))
+                Code.try_get_errcodeid_for_errtype(type(res.err_value)))
         else:
             log.err(
                 f"rpcfn on req {req} returned non-res val {res} => skip")
@@ -612,7 +599,7 @@ class ServerBus(Singleton):
                 )
             )
             return None
-        if mcodeid > len(CodeStorage.indexed_active_mcodes) - 1:
+        if mcodeid > len(Code.indexed_active_mcodes) - 1:
             await self.throw(ValErr(
                 f"unrecognized mcodeid {mcodeid}"
             ))
@@ -620,7 +607,7 @@ class ServerBus(Singleton):
 
         t: type[Msg] | None = \
             FcodeCore.try_get_type_for_any_code(
-                CodeStorage.indexed_active_mcodes[mcodeid])
+                Code.indexed_active_mcodes[mcodeid])
         assert t is not None, "if mcodeid found, mtype must be found"
 
         t = typing.cast(type[Msg], t)
@@ -867,7 +854,7 @@ class ServerBus(Singleton):
         msg: Msg,
         opts: PubOpts = PubOpts()
     ):
-        mcodeid_res = CodeStorage.get_mcodeid_for_mtype(mtype)
+        mcodeid_res = Code.get_mcodeid_for_mtype(mtype)
         if isinstance(mcodeid_res, Ok) and msg.skip__target_connsids:
             mcodeid = mcodeid_res.ok_value
             rmsg = msg.serialize_for_net(mcodeid)

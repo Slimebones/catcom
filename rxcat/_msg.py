@@ -1,13 +1,14 @@
 from inspect import isfunction
-from typing import Any, Self, TypeVar
+from typing import Any, Iterable, Self, TypeVar
 
 from pydantic import BaseModel
-from pykit.err import ValErr
+from pykit.err import NotFoundErr, ValErr
 from pykit.fcode import code
 from pykit.log import log
 from pykit.obj import get_fully_qualified_name
 from pykit.rand import RandomUtils
 from pykit.res import Res
+from rxcat._lock import Lock
 from result import Err, Ok
 
 from rxcat._err import ErrDto
@@ -28,51 +29,133 @@ class CodedMsgData(BaseModel):
     code: str
     data: Mdata
 
-def validate_code(code: str) -> Res[None]:
-    if not isinstance(code, str):
-        return Err(ValErr(f"code {code} must be str"))
-    if code == "":
-        return Err(ValErr(f"empty code"))
-    for i, c in enumerate(code):
-        if i == 0 and not c.isalpha():
-            return Err(ValErr(
-                f"code {code} must start with alpha"))
-        if not c.isalnum() and c != "_":
-            return Err(ValErr(
-                f"code {code} can contain only alnum"
-                " characters or underscore"))
-    if len(code) > 256:
-        return Err(ValErr(f"code {code} exceeds maxlen 256"))
-    return Ok(None)
+class Code:
+    """
+    Manages attached to various objects str codes.
+    """
+    _code_to_type: dict[str, type] = {}
+    _codes: list[str] = []
+    _lock: Lock = Lock()
 
-def get_code(t: type) -> Res[str]:
-    if isinstance(t, CodedMsgData):
-        code = t.code
-    else:
-        codefn = getattr(t, "code", None)
-        if codefn is None:
-            return Err(ValErr(
-                f"msg data {t} must define \"code() -> str\" method"))
-        if not isfunction(codefn):
-            return Err(ValErr(
-                f"msg data {t} \"code\" attribute must be function,"
-                f" got {codefn}"))
-        try:
-            code = codefn()
-        except Exception as err:
-            log.catch(err)
-            return Err(ValErr(
-                f"err {get_fully_qualified_name(err)} occured during"
-                f" msg data {t} {codefn} method call #~stacktrace"))
+    @classmethod
+    async def get_codes(cls) -> Res[list[str]]:
+        await cls._lock.wait()
+        return Ok(cls._codes.copy())
 
-    validate_res = validate_code(code)
-    if isinstance(validate_res, Err):
-        return validate_res
+    @classmethod
+    async def get_code(cls, t: type) -> Res[str]:
+        await cls._lock.wait()
+        for c, t_ in cls._code_to_type.items():
+            if t_ is t:
+                return Ok(c)
+        return Err(ValErr(f"code {code} is not registered"))
 
-    return Ok(code)
+    @classmethod
+    async def get_codeid(cls, code: str) -> Res[int]:
+        await cls._lock.wait()
+        if code not in cls._codes:
+            return Err(ValErr(f"code {code} is not registered"))
+        return Ok(cls._codes.index(code))
 
-class CodeStorage:
-    code_to_type: dict[str, type] = {}
+    @classmethod
+    async def get_type(cls, code: str) -> Res[type]:
+        await cls._lock.wait()
+        if code not in cls._code_to_type:
+            return Err(ValErr(f"code {code} is not registered"))
+        return Ok(cls._code_to_type[code])
+
+    @classmethod
+    async def upd(
+            cls,
+            types: Iterable[type],
+            order: list[str] | None = None) -> Res[None]:
+        async with cls._lock:
+            for t in types:
+                code_res = cls.get_from_type(t)
+                if isinstance(code_res, Err):
+                    log.err(
+                        f"cannot get code {code}: {code_res.err_value}"
+                        " => skip")
+                    continue
+                code = code_res.ok_value
+
+                validate_res = cls.validate(code)
+                if isinstance(validate_res, Err):
+                    log.err(
+                        f"code {code} is not valid:"
+                        f" {validate_res.err_value} => skip")
+                    continue
+
+                cls._code_to_type[code] = t
+
+            cls._codes = list(cls._code_to_type.keys())
+            if order:
+                order_res = cls._order(order)
+                if isinstance(order_res, Err):
+                    return order_res
+
+            return Ok(None)
+
+    @classmethod
+    def _order(cls, order: list[str]) -> Res[None]:
+        sorted_codes: list[str] = []
+        for o in order:
+            if o not in cls._codes:
+                log.warn(f"unrecornized order code {o} => skip")
+                continue
+            cls._codes.remove(o)
+            sorted_codes.append(o)
+        # bring rest of the codes
+        for c in cls._codes:
+            sorted_codes.append(c)
+
+        cls._codes = sorted_codes
+        return Ok(None)
+
+    @classmethod
+    def validate(cls, code: str) -> Res[None]:
+        if not isinstance(code, str):
+            return Err(ValErr(f"code {code} must be str"))
+        if code == "":
+            return Err(ValErr(f"empty code"))
+        for i, c in enumerate(code):
+            if i == 0 and not c.isalpha():
+                return Err(ValErr(
+                    f"code {code} must start with alpha"))
+            if not c.isalnum() and c != "_":
+                return Err(ValErr(
+                    f"code {code} can contain only alnum"
+                    " characters or underscore"))
+        if len(code) > 256:
+            return Err(ValErr(f"code {code} exceeds maxlen 256"))
+        return Ok(None)
+
+    @classmethod
+    def get_from_type(cls, t: type) -> Res[str]:
+        if isinstance(t, CodedMsgData):
+            code = t.code
+        else:
+            codefn = getattr(t, "code", None)
+            if codefn is None:
+                return Err(ValErr(
+                    f"msg data {t} must define \"code() -> str\" method"))
+            if not isfunction(codefn):
+                return Err(ValErr(
+                    f"msg data {t} \"code\" attribute must be function,"
+                    f" got {codefn}"))
+            try:
+                code = codefn()
+            except Exception as err:
+                log.catch(err)
+                return Err(ValErr(
+                    f"err {get_fully_qualified_name(err)} occured during"
+                    f" msg data {t} {codefn} method call #~stacktrace"))
+
+        validate_res = cls.validate(code)
+        if isinstance(validate_res, Err):
+            return validate_res
+
+        return Ok(code)
 
 class Msg(BaseModel):
     """
@@ -198,9 +281,9 @@ class Msg(BaseModel):
         if "code" not in data:
             return Err(ValErr(f"data {data} must have \"code\" field"))
         code = data["code"]
-        if code not in CodeStorage.code_to_type:
+        if code not in Code._code_to_type:
             return Err(ValErr(f"unregistered code {code}"))
-        custom_type = CodeStorage.code_to_type[code]
+        custom_type = Code._code_to_type[code]
         deserialize_custom = getattr(custom_type, "deserialize", None)
         if issubclass(custom_type, BaseModel):
             if not isinstance(custom, dict):
