@@ -3,7 +3,6 @@ from typing import Any, Iterable, Self, TypeVar
 
 from pydantic import BaseModel
 from pykit.err import NotFoundErr, ValErr
-from pykit.fcode import code
 from pykit.log import log
 from pykit.obj import get_fully_qualified_name
 from pykit.rand import RandomUtils
@@ -38,17 +37,28 @@ class Code:
     _lock: Lock = Lock()
 
     @classmethod
+    def has_code(cls, code: str) -> bool:
+        return code in cls._codes
+
+    @classmethod
+    async def get_registered_code_by_id(cls, id: int) -> Res[str]:
+        await cls._lock.wait()
+        if id > len(cls._codes) - 1:
+            return Err(ValErr(f"codeid {id} is not registered"))
+        return Ok(cls._codes[id])
+
+    @classmethod
     async def get_registered_codes(cls) -> Res[list[str]]:
         await cls._lock.wait()
         return Ok(cls._codes.copy())
 
     @classmethod
-    async def get_registered_code(cls, t: type) -> Res[str]:
+    async def get_registered_code_by_type(cls, t: type) -> Res[str]:
         await cls._lock.wait()
         for c, t_ in cls._code_to_type.items():
             if t_ is t:
                 return Ok(c)
-        return Err(ValErr(f"code {code} is not registered"))
+        return Err(ValErr(f"type {t} is not registered"))
 
     @classmethod
     async def get_registered_codeid(cls, code: str) -> Res[int]:
@@ -240,22 +250,27 @@ class Msg(BaseModel):
 
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
-    def serialize_for_net(self) -> Res[dict]:
-        res = self.model_dump()
+    async def serialize_to_net(self) -> Res[dict]:
+        final = self.model_dump()
+
+        codeid_res = await Code.get_registered_codeid(self.skip__code)
+        if isinstance(codeid_res, Err):
+            return codeid_res
+        final["codeid"] = codeid_res.ok_value
 
         # del server msg fields - we should do these before key deletion setup
-        if "skip__connsid" in res and res["skip__connsid"] is not None:
+        if "skip__connsid" in final and final["skip__connsid"] is not None:
             # connsids must exist only inside server bus, it's probably an err
             # if a msg is tried to be serialized with connsid, but we will
             # throw a warning for now, and ofcourse del the field
             log.warn(
                 "connsids must exist only inside server bus, but it is tried"
-                f" to serialize msg {self} with connsid != None"
+                f" to serialize msg {self} with connsid != None => ignore"
             )
 
         is_msid_found = False
         keys_to_del: list[str] = []
-        for k, v in res.items():
+        for k, v in final.items():
             if k == "msid":
                 is_msid_found = True
                 continue
@@ -267,22 +282,31 @@ class Msg(BaseModel):
                 keys_to_del.append(k)
 
         if not is_msid_found:
-            raise ValueError(f"no msid field for raw msg {res}")
+            raise ValueError(f"no msid field for raw msg {final}")
         for k in keys_to_del:
-            del res[k]
+            del final[k]
 
-        return Ok(res)
+        return Ok(final)
 
     @classmethod
-    def deserialize_from_net(cls, data: dict) -> Res[Self]:
+    async def deserialize_from_net(cls, data: dict) -> Res[Self]:
         """Recovers model of this class using dictionary."""
         # parse mdata separately according to it's registered type
         custom = data.get("data", None)
-        if "code" not in data:
-            return Err(ValErr(f"data {data} must have \"code\" field"))
-        code = data["code"]
-        if code not in Code._code_to_type:
+        if "codeid" not in data:
+            return Err(ValErr(f"data {data} must have \"codeid\" field"))
+        codeid = data["codeid"]
+        del data["codeid"]
+        if not isinstance(codeid, int):
+            return Err(ValErr(
+                f"invalid type of codeid {codeid}, expected int"))
+        code_res = await Code.get_registered_code_by_id(codeid)
+        if isinstance(code_res, Err):
+            return code_res
+        code = code_res.ok_value
+        if not Code.has_code(code):
             return Err(ValErr(f"unregistered code {code}"))
+        data["skip__code"] = code
         custom_type = Code._code_to_type[code]
         deserialize_custom = getattr(custom_type, "deserialize", None)
         if issubclass(custom_type, BaseModel):

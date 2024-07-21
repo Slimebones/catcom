@@ -326,7 +326,7 @@ class ServerBus(Singleton):
         welcome = Welcome(codes=codes_res.ok_value)
         self._preserialized_welcome_msg = eject(Msg(
             skip__code=Welcome.code(),
-            data=welcome).serialize_for_net())
+            data=welcome).serialize_to_net())
         rewelcome_res = await self._rewelcome_all_conns()
         if isinstance(rewelcome_res, Err):
             return rewelcome_res
@@ -883,7 +883,7 @@ class ServerBus(Singleton):
         mcodeid_res = Code.get_mcodeid_for_mtype(mtype)
         if isinstance(mcodeid_res, Ok) and msg.skip__target_connsids:
             mcodeid = mcodeid_res.ok_value
-            rmsg = msg.serialize_for_net(mcodeid)
+            rmsg = msg.serialize_to_net(mcodeid)
             for connsid in msg.skip__target_connsids:
                 if connsid not in self._sid_to_conn:
                     log.err(
