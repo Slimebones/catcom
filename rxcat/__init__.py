@@ -264,7 +264,9 @@ class ServerBus(Singleton):
             Register,
             Welcome,
             ok,
-            ErrDto))
+            ErrDto,
+            SrpcSend,
+            SrpcRecv))
 
         self._cfg = cfg
 
@@ -324,7 +326,7 @@ class ServerBus(Singleton):
         if isinstance(codes_res, Err):
             return codes_res
         welcome = Welcome(codes=codes_res.ok_value)
-        self._preserialized_welcome_msg = eject(Msg(
+        self._preserialized_welcome_msg = eject(await Msg(
             skip__code=Welcome.code(),
             data=welcome).serialize_to_net())
         rewelcome_res = await self._rewelcome_all_conns()
@@ -533,12 +535,12 @@ class ServerBus(Singleton):
     async def _accept_net_msg(self, msg: Msg | None):
         if msg is None:
             return
-        elif isinstance(msg, SrpcEvt):
+        elif isinstance(msg.data, SrpcRecv):
             log.err(
                 f"server bus won't accept RpcEvt messages, got {msg}"
                 " => skip")
             return
-        elif isinstance(msg, SrpcSend):
+        elif isinstance(msg.data, SrpcSend):
             # process rpc in a separate task to not block inp queue
             # processing
             task = asyncio.create_task(self._call_rpc(msg))
@@ -546,36 +548,37 @@ class ServerBus(Singleton):
             task.add_done_callback(self._rpc_tasks.discard)
             return
         # publish to inner bus with no duplicate net resending
-        await self.pub(msg, None, PubOpts(must_send_to_net=False))
+        await self.pub(msg, PubOpts(must_send_to_net=False))
 
-    async def _call_rpc(self, req: SrpcSend):
-        code, _ = req.key.split(":")
+    async def _call_rpc(self, msg: Msg):
+        data = msg.data
+        code, _ = data.key.split(":")
         if code not in self._rpccode_to_fn:
-            log.err(f"no such rpc code {code} for req {req} => skip")
+            log.err(f"no such rpc code {code} for req {data} => skip")
             return
         fn, args_type = self._rpccode_to_fn[code]
 
-        _rxcat_ctx.set(self._get_ctx_dict_for_msg(req))
+        _rxcat_ctx.set(self._get_ctx_dict_for_msg(data))
 
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:
             try:
-                ctx_manager = await self._cfg.rpc_ctxfn(req)
+                ctx_manager = await self._cfg.rpc_ctxfn(data)
             except Exception as err:
                 log.err(
                     f"err {get_fully_qualified_name(err)} is occured"
-                    f" during rpx ctx manager retrieval for req {req} => skip")
+                    f" during rpx ctx manager retrieval for req {data} => skip")
                 log.catch(err)
                 return
         try:
             if ctx_manager:
                 async with ctx_manager:
-                    res = await fn(args_type.model_validate(req.args))
+                    res = await fn(args_type.model_validate(data.args))
             else:
-                res = await fn(args_type.model_validate(req.args))
+                res = await fn(args_type.model_validate(data.args))
         except Exception as err:
             log.warn(
-                f"unhandled exception occured for rpcfn on req {req}"
+                f"unhandled exception occured for rpcfn on req {data}"
                 " => wrap it to usual RpcEvt;"
                 f" exception {get_fully_qualified_name(err)}")
             log.catch(err)
@@ -585,18 +588,16 @@ class ServerBus(Singleton):
         if isinstance(res, Ok):
             val = res.ok_value
         elif isinstance(res, Err):
-            val = ErrDto.create(
-                res.err_value,
-                Code.try_get_errcodeid_for_errtype(type(res.err_value)))
+            val = eject(ErrDto.create(res.err_value))
         else:
             log.err(
-                f"rpcfn on req {req} returned non-res val {res} => skip")
+                f"rpcfn on req {data} returned non-res val {res} => skip")
             return
 
         # val must be any serializable by pydantic object, so here we pass it
         # directly as field of SrpcEvt, which will do serialization
         # automatically under the hood
-        evt = SrpcEvt(lsid=None, key=req.key, val=val).as_res_from_req(req)
+        evt = SrpcEvt(lsid=None, key=data.key, val=val).as_res_from_req(data)
         await self._pub_to_net(type(evt), evt)
 
     async def parse_rmsg(
