@@ -55,6 +55,9 @@ class Msg(BaseModel):
     # since we won't change data type for an existing message, we keep
     # code with the data
     skip__datacode: str
+    """
+    Code of msg's data.
+    """
     data: Mdata
 
     skip__err: Exception | None = None
@@ -84,8 +87,8 @@ class Msg(BaseModel):
         arbitrary_types_allowed = True
 
     def __init__(self, **data):
-        if "msid" not in data:
-            data["msid"] = uuid4()
+        if "sid" not in data:
+            data["sid"] = uuid4()
         super().__init__(**data)
 
     def __hash__(self) -> int:
@@ -134,7 +137,7 @@ class Msg(BaseModel):
                 keys_to_del.append(k)
 
         if not is_msid_found:
-            raise ValueError(f"no msid field for raw msg {final}")
+            raise ValueError(f"no sid field for rmsg {final}")
         for k in keys_to_del:
             del final[k]
 

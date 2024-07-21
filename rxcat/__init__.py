@@ -32,7 +32,7 @@ from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
 from pykit.pointer import Pointer
-from pykit.res import Err, Ok, UnwrapErr, Res
+from pykit.res import Err, Ok, UnwrapErr, Res, valerr
 from pykit.err import ErrDto
 from pykit.singleton import Singleton
 
@@ -155,8 +155,6 @@ class PubOpts(BaseModel):
     """
     Whether pubr must ignore returned ErrEvt and return it as it is.
     """
-
-    on_missing_connsid: Callable[[str], Coroutine] | None = None
 
     pubr_timeout: float | None = None
     """
@@ -595,54 +593,17 @@ class ServerBus(Singleton):
             skip__target_connsids=[msg.connsid],
             key=data.key,
             val=val)
-        await self._pub_to_net(type(evt), evt)
+        await self._pub_to_net(evt)
 
     async def parse_rmsg(
-            self, rmsg: dict, conn: Conn) -> Msg | None:
-
-        msid: str | None = rmsg.get("msid", None)
+            self, rmsg: dict, conn: Conn) -> Res[Msg]:
+        msid: str | None = rmsg.get("sid", None)
         if not msid:
-            log.err("msg without msid => skip silently")
-            return None
-
-        # for future lsid navigation
-        # lsid: str | None = rmsg.get("lsid", None)
-
-        mcodeid: int | None = rmsg.get("mcodeid", None)
-        if mcodeid is None:
-            await self.throw(
-                ValErr(
-                    f"got msg {rmsg} with undefined mcodeid"
-                )
-            )
-            return None
-        if mcodeid < 0:
-            await self.throw(
-                ValErr(
-                    f"invalid mcodeid {mcodeid}"
-                )
-            )
-            return None
-        if mcodeid > len(Code.indexed_active_mcodes) - 1:
-            await self.throw(ValErr(
-                f"unrecognized mcodeid {mcodeid}"
-            ))
-            return None
-
-        t: type[Msg] | None = \
-            FcodeCore.try_get_type_for_any_code(
-                Code.indexed_active_mcodes[mcodeid])
-        assert t is not None, "if mcodeid found, mtype must be found"
-
-        t = typing.cast(type[Msg], t)
+            return valerr("msg without sid")
+        # msgs coming from net receive connection sid
         rmsg["skip__connsid"] = conn.sid
-        try:
-            msg = t.deserialize_from_net(rmsg)
-        except Exception as err:
-            log.err_or_catch(err, 2)
-            return None
-
-        return msg
+        msg_res = await Msg.deserialize_from_net(rmsg)
+        return msg_res
 
     async def sub(
         self,
