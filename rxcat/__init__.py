@@ -146,7 +146,13 @@ class PubOpts(BaseModel):
     Defaults to only ctx connsid, if it exists.
     """
 
-    use_ctx_msid_as_lsid: bool = False
+    lsid: str | None = None
+    """
+    Lsid to be used in the msg.
+
+    Available operators:
+        - $ctx.msid - use "msid" field of the ctx as lsid
+    """
 
     send_to_inner: bool = True
     """
@@ -611,6 +617,8 @@ class ServerBus(Singleton):
             skip__target_connsids=[msg.connsid],
             key=data.key,
             val=val)
+        # we publish directly to the net since inner participants can't
+        # subscribe to this
         await self._pub_to_net(evt)
 
     async def parse_rmsg(
@@ -780,8 +788,8 @@ class ServerBus(Singleton):
                 return err_dto_res
             data = err_dto_res.okval
 
-        lsid = None
-        if opts.use_ctx_msid_as_lsid:
+        lsid = opts.lsid
+        if lsid == "$ctx.msid":
             # by default we publish as response to current message, so we
             # use the current's message sid as linked sid
             msid_res = self.get_ctx_key("msid")
@@ -789,6 +797,8 @@ class ServerBus(Singleton):
                 return msid_res
             lsid = msid_res.okval
             assert isinstance(lsid, str)
+        elif isinstance(lsid, str) and lsid.startswith("$"):
+            return valerr(f"unrecognized PubOpts.lsid operator: {lsid}")
 
         target_connsids = None
         if opts.target_connsids:
@@ -927,10 +937,18 @@ class ServerBus(Singleton):
             else:
                 vals = val
 
+        # by default all subsriber's data are intended to be linked to
+        # initial message, so we attach this message ctx msid
+        lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx::msid")
+        pub_opts = PubOpts(lsid=lsid)
         for val in vals:
             # TODO: replace ignore() with warn() as it gets available in
             #       pykit::res
-            (await self.pub(val)).ignore()
+            (await self.pub(val, pub_opts)).ignore()
+
+    def set_ctx_subfn_lsid(self, lsid: str | None):
+        ctx_dict = _rxcat_ctx.get().copy()
+        ctx_dict["subfn__lsid"] = lsid
 
     def _check_norpc_mdata(
             self, data: Mdata | type[Mdata], disp_ctx: str) -> Res[None]:
