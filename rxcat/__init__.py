@@ -795,8 +795,7 @@ class ServerBus(Singleton):
             lsid=lsid,
             skip__datacode=code,
             data=data,
-            skip__target_connsids=target_connsids
-        )
+            skip__target_connsids=target_connsids)
 
         r = self._check_norpc_mdata(msg, "publication")
         if isinstance(r, Err):
@@ -816,21 +815,20 @@ class ServerBus(Singleton):
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.send_to_net:
-            await self._pub_to_net(code, msg, opts)
+            await self._pub_to_net(msg, opts)
 
         if opts.send_to_inner and code in self._code_to_subfns:
-            await self._send_to_inner_bus(mtype, msg)
+            await self._send_to_inner_bus(msg)
 
         if isinstance(msg, Evt):
             await self._send_evt_as_response(msg)
 
         return Ok(None)
 
-    async def _send_to_inner_bus(self, mtype: type[TMsg], msg: TMsg):
-        subfns = self._code_to_subfns[mtype]
+    async def _send_to_inner_bus(self, msg: Msg):
+        subfns = self._code_to_subfns[msg.skip__datacode]
         if not subfns:
-            await self.throw(ValErr(
-                f"no subfns for msg type {mtype}"))
+            return
         removing_subfn_sids = []
         for subfn in subfns:
             await self._try_call_subfn(subfn, msg)
@@ -839,29 +837,17 @@ class ServerBus(Singleton):
         for removing_subfn_sid in removing_subfn_sids:
             (await self.unsub(removing_subfn_sid)).unwrap_or(None)
 
-    async def _pub_to_net(
-        self,
-        msg: Msg,
-        opts: PubOpts = PubOpts()
-    ):
+    async def _pub_to_net(self, msg: Msg):
         if msg.skip__target_connsids:
-            rmsg = msg.serialize_to_net()
+            rmsg = (await msg.serialize_to_net()).unwrap_or(None)
+            if rmsg is None:
+                return
             for connsid in msg.skip__target_connsids:
                 if connsid not in self._sid_to_conn:
                     log.err(
                         f"no conn with id {connsid} for msg {msg}"
                         " => skip"
                     )
-                    # do we really need this?
-                    if opts.on_missing_connsid:
-                        try:
-                            await opts.on_missing_connsid(connsid)
-                        except Exception as err:
-                            log.err(
-                                "during on_missing_consid fn call err"
-                                f" {get_fqname(err)}"
-                                " #stacktrace")
-                            log.catch(err)
                     continue
                 conn = self._sid_to_conn[connsid]
                 conn_type = type(conn)
