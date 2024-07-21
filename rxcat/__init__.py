@@ -63,6 +63,7 @@ __all__ = [
     "ServerBus",
     "SubFn",
     "RetState",
+    "NoSubFnLsidFilter",
     "ok",
 
     "ResourceServerErr",
@@ -947,6 +948,11 @@ class ServerBus(Singleton):
             (await self.pub(val, pub_opts)).ignore()
 
     def set_ctx_subfn_lsid(self, lsid: str | None):
+        """
+        Can be used to change subfn lsid behaviour.
+
+        Useful at ``SubOpts.out_filters``, see ``disable_subfn_lsid``.
+        """
         ctx_dict = _rxcat_ctx.get().copy()
         ctx_dict["subfn__lsid"] = lsid
 
