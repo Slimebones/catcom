@@ -9,7 +9,7 @@ from pykit.res import Res
 from pykit.res import Err, Ok
 from pykit.uuid import uuid4
 
-TMdata = TypeVar("TMdata")
+TMdata = TypeVar("TMdata", contravariant=True)
 Mdata = Any
 """
 Any custom data bus user interested in. Must be serializable and implement

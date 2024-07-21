@@ -15,6 +15,7 @@ from typing import (
     Any,
     ClassVar,
     Coroutine,
+    Generic,
     Iterable,
     Literal,
     Protocol,
@@ -33,6 +34,7 @@ from pykit.singleton import Singleton
 
 from rxcat._msg import (
     Mdata,
+    TMdata,
     Msg,
     Register,
     TMsg,
@@ -87,6 +89,13 @@ def srpc():
         return target
     return inner
 
+class RetState(Enum):
+    SkipMe = 0
+    """
+    Used by subscribers to prevent any actions on it's retval, since
+    returning None will cause bus to publish Ok(None).
+    """
+
 class ResourceServerErr(Exception):
     def code(self) -> str:
         return "rxcat__resource_server_err"
@@ -124,10 +133,9 @@ class Internal__BusUnhandledErr(Exception):
             f"bus unhandled err: {err}"
         )
 
-SubFnRetval = Res[Mdata | Iterable[Mdata] | None] | None
-SubFn = Callable[
-    [Mdata],
-    Awaitable[SubFnRetval]]
+SubFnRetval = Mdata | Iterable[Mdata] | RetState | None
+class SubFn(Protocol, Generic[TMdata]):
+    async def __call__(self, data: TMdata) -> SubFnRetval: ...
 
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
@@ -171,13 +179,6 @@ class PubOpts(BaseModel):
 MdataCondition = Callable[[Mdata], Awaitable[bool]]
 MdataFilter = Callable[[Mdata], Awaitable[Mdata]]
 SubFnRetvalFilter = Callable[[SubFnRetval], Awaitable[SubFnRetval]]
-
-class RetState(Enum):
-    SkipMe = 0
-    """
-    Used by subscribers to prevent any actions on it's retval, since
-    returning None will cause bus to publish Ok(None).
-    """
 
 class SubOpts(BaseModel):
     recv_last_msg: bool = True
@@ -841,13 +842,8 @@ class ServerBus(Singleton):
         subfns = self._code_to_subfns[msg.skip__datacode]
         if not subfns:
             return
-        removing_subfn_sids = []
         for subfn in subfns:
             await self._call_subfn(subfn, msg)
-            if subfn.is_removing:
-                removing_subfn_sids.append(subfn.sid)
-        for removing_subfn_sid in removing_subfn_sids:
-            (await self.unsub(removing_subfn_sid)).unwrap_or(None)
 
     async def _pub_to_net(self, msg: Msg):
         if msg.skip__target_connsids:
@@ -913,22 +909,24 @@ class ServerBus(Singleton):
                 log.catch(err)
                 return
             async with ctx_manager:
-                res = await subfn.fn(msg)
+                res = await subfn(msg)
         else:
-            res = await subfn.fn(msg)
+            res = await subfn(msg)
 
         vals = []
         if isinstance(res, RetState):
+            if res is RetState.SkipMe:
+                return
+            log.err(f"unsupported ret state: {res}")
             return
-        elif isinstance(res, Ok):
-            val = res.okval
-
+        else:
             try:
-                val.iter()
+                # safer way to check, instead of isinstance(res, Iterable)
+                res.iter()  # type: ignore
             except TypeError:
-                vals = [val]
+                vals = [res]
             else:
-                vals = val
+                vals = typing.cast(Iterable[Mdata], res)
 
         # by default all subsriber's data are intended to be linked to
         # initial message, so we attach this message ctx msid

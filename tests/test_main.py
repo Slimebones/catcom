@@ -1,56 +1,42 @@
 from pykit.check import check
-from pykit.err import ValueErr
-from pykit.res import Res, eject
+from pykit.code import get_fqname
+from pykit.err import ValErr
+from pykit.err_utils import ErrDto
+from pykit.res import Res
 from pykit.res import Err, Ok
 
-from rxcat import ErrEvt, ServerBus
-from rxcat._code import CodeStorage
-from tests.conftest import MockEvt_1, MockEvt_2, MockReq_1, MockReq_2
+from rxcat import ServerBus
+from tests.conftest import Mock_1
 
 
-async def test_res_returning(server_bus: ServerBus):
-    is_msg1_arrived = False
-    is_msg2_arrived = False
-    is_err_evt_arrived = False
-    is_evt1_arrived = False
+async def test_subpub(server_bus: ServerBus):
+    flag1 = False
+    flag2 = False
 
-    async def ret_ok(msg) -> Res[MockEvt_1]:
-        nonlocal is_msg1_arrived
-        is_msg1_arrived = True
-        return Ok(MockEvt_1(num=5, lsid=None))
+    async def sub__mock_1(data: Mock_1):
+        assert isinstance(data, Mock_1)
+        assert data.num == 5
+        nonlocal flag1
+        flag1 = True
 
-    async def ret_err(msg):
-        nonlocal is_msg2_arrived
-        assert msg.msid
-        is_msg2_arrived = True
-        return Err(ValueErr("hello"))
+    async def sub__err(data: ErrDto):
+        assert data.name == get_fqname(ValErr)
+        assert data.msg == "hello"
+        nonlocal flag2
+        flag2 = True
 
-    async def on_err_evt(evt: ErrEvt):
-        nonlocal is_err_evt_arrived
-        assert type(evt.skip__err) is ValueErr
-        assert evt.err.msg == "hello"
-        is_err_evt_arrived = True
-
-    async def on_evt1(evt: MockEvt_1):
-        nonlocal is_evt1_arrived
-        assert isinstance(evt, MockEvt_1)
-        assert evt.num == 5
-        is_evt1_arrived = True
-
-    await server_bus.sub(MockReq_1, ret_ok)
-    await server_bus.sub(MockReq_2, ret_err)
-    await server_bus.sub(ErrEvt, on_err_evt)
-    await server_bus.sub(MockEvt_1, on_evt1)
+    await server_bus.sub(Mock_1, sub__mock_1)
+    await server_bus.sub(ErrDto, sub__err)
+    await server_bus.sub(ErrEvt, sub__valerr)
+    await server_bus.sub(Mock_1, sub__mock_1)
     await server_bus.pub(MockReq_1(num=1))
     await server_bus.pub(MockReq_2(num=2))
     await check.aexpect(
         server_bus.pubr(MockReq_2(num=3)),
         ValueErr)
 
-    assert is_msg1_arrived
-    assert is_msg2_arrived
-    assert is_err_evt_arrived
-    assert is_evt1_arrived
+    assert flag1
+    assert flag2
 
 async def test_inner_pubsub(server_bus: ServerBus):
     is_msg1_arrived = False
