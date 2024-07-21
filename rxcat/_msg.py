@@ -318,6 +318,8 @@ class Welcome(BaseModel):
     """
     Welcome evt sent to every connected client.
     """
+    codes: list[str]
+
     def code(self) -> str:
         return "rxcat__welcome"
 

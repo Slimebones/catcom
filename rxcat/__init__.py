@@ -11,7 +11,6 @@ every client on connection. For now this is two types of codes:
 
 import asyncio
 import contextlib
-from enum import Enum
 import functools
 import typing
 from asyncio import Queue
@@ -313,6 +312,11 @@ class ServerBus(Singleton):
                 out_queue_processor=out_task)
             self._conn_type_to_atransport[transport.conn_type] = atransport
 
+    async def _create_welcome(self) -> Res[Welcome]:
+        codesr = await Code.get_codes()
+        if isinstance(codesr, Err):
+            return codesr
+        return Ok(Welcome(codes=codesr.ok_value))
 
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn:
@@ -328,8 +332,8 @@ class ServerBus(Singleton):
         return self._is_initd
 
     @classmethod
-    def get_registered_type(cls, code: str) -> Res[type]:
-        pass
+    async def get_registered_type(cls, code: str) -> Res[type]:
+        return await Code.get_type(code)
 
     @classmethod
     async def register_codes(cls, types: Iterable[type]) -> Res[None]:
