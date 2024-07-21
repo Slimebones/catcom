@@ -28,7 +28,24 @@ class CodedMsgData(BaseModel):
     code: str
     data: Mdata
 
-def get_mdata_code(data: Mdata) -> Res[str]:
+def validate_code(code: str) -> Res[None]:
+    if not isinstance(code, str):
+        return Err(ValErr(f"code {code} must be str"))
+    if code == "":
+        return Err(ValErr(f"empty code"))
+    for i, c in enumerate(code):
+        if i == 0 and not c.isalpha():
+            return Err(ValErr(
+                f"code {code} must start with alpha"))
+        if not c.isalnum() and c != "_":
+            return Err(ValErr(
+                f"code {code} can contain only alnum"
+                " characters or underscore"))
+    if len(code) > 256:
+        return Err(ValErr(f"code {code} exceeds maxlen 256"))
+    return Ok(None)
+
+def get_code(data: Mdata) -> Res[str]:
     if isinstance(data, CodedMsgData):
         code = data.code
     else:
@@ -48,22 +65,14 @@ def get_mdata_code(data: Mdata) -> Res[str]:
                 f"err {get_fully_qualified_name(err)} occured during"
                 f" msg data {data} {codefn} method call #~stacktrace"))
 
-    if not isinstance(code, str):
-        return Err(ValErr(f"msg data {data} code {code} must be str"))
-    if code == "":
-        return Err(ValErr(f"msg data {data} has empty code"))
-    for i, c in enumerate(code):
-        if i == 0 and not c.isalpha():
-            return Err(ValErr(
-                f"msg data {data} code {code} must start with alpha"))
-        if not c.isalnum() and c != "_":
-            return Err(ValErr(
-                f"msg data {data} code {code} can contain only alnum"
-                " characters or underscore"))
-    if len(code) > 256:
-        return Err(ValErr(f"msg data {data} code {code} exceeds maxlen 256"))
+    validate_res = validate_code(code)
+    if isinstance(validate_res, Err):
+        return validate_res
 
     return Ok(code)
+
+class CodeStorage:
+    code_to_type: dict[str, type] = {}
 
 class Msg(BaseModel):
     """

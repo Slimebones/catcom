@@ -22,6 +22,7 @@ from typing import (
     Any,
     ClassVar,
     Coroutine,
+    Iterable,
     Literal,
     Protocol,
     runtime_checkable,
@@ -40,7 +41,6 @@ from result import Err, Ok, UnwrapError
 
 from rxcat._err import ErrDto
 from rxcat._msg import (
-    get_mdata_code,
     Mdata,
     Msg,
     Register,
@@ -58,11 +58,14 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
+from rxcat._msg import get_code, validate_code, CodedMsgData, CodeStorage
 
 __all__ = [
     "ServerBus",
     "SubFn",
-    "get_mdata_code",
+    "get_code",
+    "validate_code",
+    "CodedMsgData",
 
     "ResourceServerErr",
     "RegisterFn",
@@ -323,6 +326,31 @@ class ServerBus(Singleton):
         return self._is_initd
 
     @classmethod
+    def register_codes(cls, code_to_type: dict[str, type]) -> Res[None]:
+        """
+        Register codes and types associated with them.
+
+        No err is raised on existing code redefinition. Err is printed on
+        invalid codes.
+        """
+        code_to_type = code_to_type.copy()
+        keys_to_del = []
+
+        for k in code_to_type.keys():
+            validate_res = validate_code(k)
+            if isinstance(validate_res, Err):
+                log.err(
+                    f"code {k} is not valid: {validate_res.err_value} => skip")
+                keys_to_del.append(k)
+                continue
+        for k in keys_to_del:
+            del code_to_type[k]
+
+        CodeStorage.code_to_type.update(code_to_type)
+
+        return Ok(None)
+
+    @classmethod
     def register_rpc(cls, fn: RpcFn) -> Res[None]:
         """
         Registers server rpc (srpc).
@@ -374,6 +402,7 @@ class ServerBus(Singleton):
             atransport.out_queue_processor.cancel()
 
         cls._code_to_rpcfn.clear()
+        CodeStorage.code_to_type.clear()
 
         ServerBus.try_discard()
 
@@ -735,7 +764,7 @@ class ServerBus(Singleton):
         Received Exceptions are additionally logged if
         cfg.trace_errs_on_pub == True.
         """
-        code_res = get_mdata_code(data)
+        code_res = get_code(data)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.ok_value
