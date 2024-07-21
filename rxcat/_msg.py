@@ -60,29 +60,6 @@ class Msg(BaseModel):
     """
     data: Mdata
 
-    skip__err: Exception | None = None
-    """
-    Err that only exists on the inner bus and won't be serialized.
-
-    Only filled for error-carrying messages.
-    """
-
-    internal__is_thrown_by_lsubfn: bool | None = None
-    """
-    Errs can be thrown by req-listening action or by req+evt listening
-    pubfn.
-
-    Only filled for error-carrying messages.
-
-    In the second case, we should set this flag to True to avoid infinite
-    msg loop, where after pubfn fail, the err evt is generated with the
-    same req sid, and again is sent to the same pubfn which caused this
-    err.
-
-    If this flag is set, the bus will prevent pubfn trigger, for this err
-    evt, but won't disable the pubfn.
-    """
-
     class Config:
         arbitrary_types_allowed = True
 

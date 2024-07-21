@@ -166,27 +166,17 @@ class PubOpts(BaseModel):
     None, which means no timeout is set.
     """
 
-MsgFilter = Callable[[Msg], Awaitable[bool]]
+DataFilter = Callable[[Mdata], Awaitable[bool]]
 
 class SubOpts(BaseModel):
-    must_receive_last_msg: bool = True
-    filters: list[MsgFilter] = []
+    recv_last_msg: bool = True
     """
-    All filters should succeed before msg being passed to a subscriber.
+    Whether to receive last stored msg with the same data code.
     """
-
-class SubFnData(BaseModel):
-    sid: str
-    fn: SubFn
-    opts: SubOpts
-    is_removing: bool = False
+    filters: list[DataFilter] | None = None
     """
-    Subsids to be safely removed to not break any iteration cycles or
-    other stuff.
+    All filters should succeed before data being passed to a subscriber.
     """
-
-    class Config:
-        arbitrary_types_allowed = True
 
 _rxcat_ctx = ContextVar("rxcat", default={})
 
@@ -270,14 +260,16 @@ class ServerBus(Singleton):
         self._sid_to_conn: dict[str, Conn] = {}
 
         self._subsid_to_code: dict[str, str] = {}
-        self._subsid_to_subfndata: dict[str, SubFnData] = {}
-        self._code_to_subfns: \
-            dict[str, list[SubFnData]] = {}
+        self._subsid_to_subfn: dict[str, SubFn] = {}
+        self._code_to_subfns: dict[str, list[SubFn]] = {}
         self._code_to_last_mdata: dict[str, Mdata] = {}
 
         self._preserialized_welcome_msg: dict = {}
 
-        self._lsid_to_msg_and_subfn: dict[str, tuple[Msg, SubFn]] = {}
+        self._lsid_to_subfn: dict[str, SubFn] = {}
+        """
+        Subscribers awaiting arrival of linked message.
+        """
         self._lsids_to_del_on_next_pubfn: set[str] = set()
 
         self._is_initd = True
@@ -614,7 +606,7 @@ class ServerBus(Singleton):
     async def sub(
         self,
         datatype: type[Mdata] | str,
-        fn: SubFn,
+        subfn: SubFn,
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable]:
         """
@@ -627,8 +619,8 @@ class ServerBus(Singleton):
             datatype:
                 Data implementing ``code() -> str`` method or direct code
                 to subscribe to.
-            action:
-                Action to fire once the messsage has arrived.
+            fn:
+                Function to fire once the messsage has arrived.
             opts (optional):
                 Subscription options.
         Returns:
@@ -638,8 +630,8 @@ class ServerBus(Singleton):
         if isinstance(r, Err):
             return r
         subsid = uuid4()
-        subfn = SubFnData(
-            sid=subsid, fn=typing.cast(Callable, fn), opts=opts)
+        if opts.filters:
+            subfn = self._apply_filters_to_subfn(subfn, opts.filters)
 
         code: str
         if isinstance(datatype, str):
@@ -655,10 +647,10 @@ class ServerBus(Singleton):
         if code not in self._code_to_subfns:
             self._code_to_subfns[code] = []
         self._code_to_subfns[code].append(subfn)
-        self._subsid_to_subfndata[subsid] = subfn
+        self._subsid_to_subfn[subsid] = subfn
         self._subsid_to_code[subsid] = code
 
-        if opts.must_receive_last_msg and code in self._code_to_last_mdata:
+        if opts.recv_last_msg and code in self._code_to_last_mdata:
             last_data = self._code_to_last_mdata[code]
             # don't care if subfn call failed
             await self._try_call_subfn(
@@ -676,9 +668,9 @@ class ServerBus(Singleton):
         msg_type = self._subsid_to_code[subsid]
 
         assert subsid in self._subsid_to_code, "all maps must be synced"
-        assert subsid in self._subsid_to_subfndata, "all maps must be synced"
+        assert subsid in self._subsid_to_subfn, "all maps must be synced"
         del self._subsid_to_code[subsid]
-        del self._subsid_to_subfndata[subsid]
+        del self._subsid_to_subfn[subsid]
         del self._code_to_subfns[msg_type]
         return Ok(None)
 
@@ -802,9 +794,9 @@ class ServerBus(Singleton):
             return r
 
         if opts.subfn is not None:
-            if msg.sid in self._lsid_to_msg_and_subfn:
+            if msg.sid in self._lsid_to_subfn:
                 return Err(AlreadyProcessedErr(f"{msg} for pubr"))
-            self._lsid_to_msg_and_subfn[msg.sid] = (msg, opts.subfn)
+            self._lsid_to_subfn[msg.sid] = opts.subfn
 
         self._code_to_last_mdata[code] = data
 
@@ -815,13 +807,13 @@ class ServerBus(Singleton):
         #   3. As a response (only if this msg type has the associated paction)
 
         if opts.send_to_net:
-            await self._pub_to_net(msg, opts)
+            await self._pub_to_net(msg)
 
         if opts.send_to_inner and code in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
 
-        if isinstance(msg, Evt):
-            await self._send_evt_as_response(msg)
+        if msg.lsid:
+            await self._send_as_linked(msg)
 
         return Ok(None)
 
@@ -858,54 +850,20 @@ class ServerBus(Singleton):
                 atransport = self._conn_type_to_atransport[conn_type]
                 await atransport.out_queue.put((conn, rmsg))
 
-    async def _send_evt_as_response(self, evt: Evt):
-        if not evt.lsid:
+    async def _send_as_linked(self, msg: Msg):
+        if not msg.lsid:
             return
 
-        req_and_pubfn = self._lsid_to_msg_and_subfn.get(
-            evt.lsid,
-            None
-        )
+        subfn = self._lsid_to_subfn.get(msg.lsid, None)
 
-        if isinstance(evt, ErrEvt) and evt.internal__is_thrown_by_pubfn:
-            # skip pubfn errs to avoid infinite msg loop
-            return
+        if subfn is not None:
+            await self._call_subfn(subfn, msg)
 
-        if req_and_pubfn is not None:
-            req = req_and_pubfn[0]
-            pubfn = req_and_pubfn[1]
-            await self._try_call_pubfn(pubfn, req, evt)
-
-    def _try_del_pubfn(self, lsid: str) -> bool:
-        if lsid not in self._lsid_to_msg_and_subfn:
+    def _try_del_subfn(self, lsid: str) -> bool:
+        if lsid not in self._lsid_to_subfn:
             return False
-        del self._lsid_to_msg_and_subfn[lsid]
+        del self._lsid_to_subfn[lsid]
         return True
-
-    async def _try_call_pubfn(
-        self,
-        pubfn: PubFn,
-        req: Req,
-        evt: Evt
-    ) -> bool:
-        f = True
-        try:
-            res = await pubfn(req, evt)
-            if isinstance(res, Err):
-                eject(res)
-        except Exception as err:
-            # technically, the msg which caused the err is evt, since on evt
-            # the pubfn is finally called
-            await self.throw(
-                err,
-                evt,
-                target_connsids=req.skip__target_connsids,
-                is_thrown_by_lsubfn=True
-            )
-            f = False
-        if not evt.skip__is_continious:
-            self._try_del_pubfn(req.msid)
-        return f
 
     def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
         ctx_dict = _rxcat_ctx.get().copy()
@@ -916,7 +874,7 @@ class ServerBus(Singleton):
 
         return ctx_dict
 
-    async def _call_subfn(self, subfn: SubFnData, msg: Msg):
+    async def _call_subfn(self, subfn: SubFn, msg: Msg) -> Res[None]:
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
         if self._cfg.sub_ctxfn is not None:
@@ -989,3 +947,14 @@ class ServerBus(Singleton):
                 f"mdata {data} in context of \"{disp_ctx}\" cannot be associated"
                 " with rpc"))
         return Ok(None)
+
+    def _apply_filters_to_subfn(
+            self, subfn: SubFn, filters: Iterable[DataFilter]) -> SubFn:
+        async def wrapper(data: Mdata) -> Any:
+            for f in filters:
+                f_out = await f(data)
+                if not f_out:
+                    return
+            # all filters passed - call the actual subfn
+            return await subfn(data)
+        return wrapper
