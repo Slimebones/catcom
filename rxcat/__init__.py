@@ -131,7 +131,7 @@ class Internal__BusUnhandledErr(Exception):
 
 SubFn = Callable[
     [Mdata],
-    Awaitable[Res[Mdata | list[Mdata] | None] | None]]
+    Awaitable[Res[Mdata | Iterable[Mdata] | None] | None]]
 
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
@@ -140,7 +140,7 @@ class PubOpts(BaseModel):
     """
     Connection sids to publish to.
 
-    Defaults to ctx connsid, if exists.
+    Defaults to only ctx connsid, if it exists.
     """
 
     use_ctx_msid_as_lsid: bool = False
@@ -898,10 +898,13 @@ class ServerBus(Singleton):
         vals = []
         if isinstance(res, Ok):
             val = res.okval
-            if isinstance(val, list):
-                vals = val
-            else:
+
+            try:
+                val.iter()
+            except TypeError:
                 vals = [val]
+            else:
+                vals = val
 
         for val in vals:
             # TODO: replace ignore() with warn() as it gets available in
