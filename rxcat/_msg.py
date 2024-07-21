@@ -179,7 +179,7 @@ class Msg(BaseModel):
     in the actual data he is operating on, and which connections they are
     operating with. And the Msg is just an underlying container for that.
     """
-    msid: str = ""
+    sid: str = ""
     lsid: str | None = None
     """
     Linked message's sid.
@@ -237,8 +237,8 @@ class Msg(BaseModel):
         super().__init__(**data)
 
     def __hash__(self) -> int:
-        assert self.msid
-        return hash(self.msid)
+        assert self.sid
+        return hash(self.sid)
 
     @property
     def connsid(self) -> str | None:
@@ -271,7 +271,7 @@ class Msg(BaseModel):
         is_msid_found = False
         keys_to_del: list[str] = []
         for k, v in final.items():
-            if k == "msid":
+            if k == "sid":
                 is_msid_found = True
                 continue
             # all internal or skipped keys are deleted from the final

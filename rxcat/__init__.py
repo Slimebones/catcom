@@ -838,9 +838,9 @@ class ServerBus(Singleton):
             return r
 
         if opts.subfn is not None:
-            if msg.msid in self._lsid_to_msg_and_subfn:
+            if msg.sid in self._lsid_to_msg_and_subfn:
                 return Err(AlreadyProcessedErr(f"{msg} for pubr"))
-            self._lsid_to_msg_and_subfn[msg.msid] = (msg, opts.subfn)
+            self._lsid_to_msg_and_subfn[msg.sid] = (msg, opts.subfn)
 
         self._code_to_last_mdata[code] = data
 
@@ -962,6 +962,7 @@ class ServerBus(Singleton):
     def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
         ctx_dict = _rxcat_ctx.get().copy()
 
+        ctx_dict["msid"] = msg.sid
         if msg.skip__connsid:
             ctx_dict["connsid"] = msg.skip__connsid
 
