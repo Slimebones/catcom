@@ -63,7 +63,6 @@ __all__ = [
     "ServerBus",
     "SubFn",
     "RetState",
-    "NoSubFnLsidFilter",
     "ok",
 
     "ResourceServerErr",
