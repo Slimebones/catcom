@@ -145,11 +145,19 @@ class PubOpts(BaseModel):
 
     use_ctx_msid_as_lsid: bool = False
 
-    must_send_to_inner: bool = True
+    send_to_inner: bool = True
+    """
+    Whether to send to inner bus subscribers.
+    """
 
-    must_send_to_net: bool = True
+    send_to_net: bool = True
     """
     Will send to net if True and code is defined for the msg passed.
+    """
+
+    log_errs: bool = True
+    """
+    Whether to log information about published errs.
     """
 
     pubr__timeout: float | None = None
@@ -537,7 +545,7 @@ class ServerBus(Singleton):
             task.add_done_callback(self._rpc_tasks.discard)
             return
         # publish to inner bus with no duplicate net resending
-        await self.pub(msg, PubOpts(must_send_to_net=False))
+        await self.pub(msg, PubOpts(send_to_net=False))
 
     async def _call_rpc(self, msg: Msg):
         data = msg.data
@@ -745,7 +753,7 @@ class ServerBus(Singleton):
         code = code_res.okval
 
         if isinstance(data, Exception):
-            if isinstance(data, UnwrapError):
+            if isinstance(data, UnwrapErr):
                 res = data.result
                 assert isinstance(res, Err)
                 if isinstance(res.errval, Exception):
@@ -755,11 +763,13 @@ class ServerBus(Singleton):
                         f"got res with err value {res.errval},"
                         " which is not an instance of Exception")
             err = typing.cast(Exception, data)
-            log.err(
-                f"thrown err {get_fully_qualified_name(err)} to pub"
-                " #stacktrace")
-            log.catch(err)
-            data = ErrDto.create(data)
+            if opts.log_errs:
+                log.err(f"pub err {get_fqname(err)} #stacktrace")
+                log.catch(err)
+            err_dto_res = create_err_dto(data)
+            if isinstance(err_dto_res, Err):
+                return err_dto_res
+            data = err_dto_res.okval
 
         lsid = None
         if opts.use_ctx_msid_as_lsid:
@@ -805,10 +815,10 @@ class ServerBus(Singleton):
         #   2. Inner (always for every registered subfn)
         #   3. As a response (only if this msg type has the associated paction)
 
-        if opts.must_send_to_net:
+        if opts.send_to_net:
             await self._pub_to_net(code, msg, opts)
 
-        if opts.must_send_to_inner and code in self._code_to_subfns:
+        if opts.send_to_inner and code in self._code_to_subfns:
             await self._send_to_inner_bus(mtype, msg)
 
         if isinstance(msg, Evt):
