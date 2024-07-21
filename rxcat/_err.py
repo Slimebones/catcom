@@ -33,3 +33,7 @@ class ErrDto(BaseModel):
                     extracted_list).format():
                 stacktrace += item
         return cls(codeid=codeid, msg=msg, name=name, stacktrace=stacktrace)
+
+    @staticmethod
+    def code() -> str:
+        return "err"

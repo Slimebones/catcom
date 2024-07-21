@@ -57,14 +57,13 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
-from rxcat._msg import CodedMsgData, Code
+from rxcat._msg import CodedMsgData, Code, ok
 
 __all__ = [
     "ServerBus",
     "SubFn",
-    "get_code",
-    "validate_code",
     "CodedMsgData",
+    "ok",
 
     "ResourceServerErr",
     "RegisterFn",
@@ -143,7 +142,7 @@ SubFn = Callable[
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
 
-    target_connsids: list[str] | None = None
+    target_connsids: Iterable[str] | None = None
     """
     Connection sids to publish to.
 
@@ -238,7 +237,7 @@ class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
     """
-    _code_to_rpcfn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
+    _rpccode_to_fn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
     DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
         is_server=True,
         conn_type=Ws,
@@ -249,6 +248,10 @@ class ServerBus(Singleton):
         port=3000,
         route="rx"
     )
+    DEFAULT_CODE_ORDER: list[str] = [
+        "rxcat__register_req",
+        "rxcat__welcome"
+    ]
 
     def __init__(self):
         self._is_initd = False
@@ -257,7 +260,11 @@ class ServerBus(Singleton):
         return _rxcat_ctx.get().copy()
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
-        self.register_codes({})
+        eject(await self.register(
+            Register,
+            Welcome,
+            ok,
+            ErrDto))
 
         self._cfg = cfg
 
@@ -312,11 +319,23 @@ class ServerBus(Singleton):
                 out_queue_processor=out_task)
             self._conn_type_to_atransport[transport.conn_type] = atransport
 
-    async def _create_welcome(self) -> Res[Welcome]:
-        codesr = await Code.get_codes()
-        if isinstance(codesr, Err):
-            return codesr
-        return Ok(Welcome(codes=codesr.ok_value))
+    async def _set_welcome(self) -> Res[Welcome]:
+        codes_res = await Code.get_registered_codes()
+        if isinstance(codes_res, Err):
+            return codes_res
+        welcome = Welcome(codes=codes_res.ok_value)
+        self._preserialized_welcome_msg = eject(Msg(
+            skip__code=Welcome.code(),
+            data=welcome).serialize_for_net())
+        rewelcome_res = await self._rewelcome_all_conns()
+        if isinstance(rewelcome_res, Err):
+            return rewelcome_res
+        return Ok(welcome)
+
+    async def _rewelcome_all_conns(self) -> Res[None]:
+        return await self.pub(
+            self._preserialized_welcome_msg,
+            PubOpts(target_connsids=self._sid_to_conn.keys()))
 
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn:
@@ -333,56 +352,59 @@ class ServerBus(Singleton):
 
     @classmethod
     async def get_registered_type(cls, code: str) -> Res[type]:
-        return await Code.get_type(code)
+        return await Code.get_registered_type(code)
 
-    @classmethod
-    async def register_codes(cls, types: Iterable[type]) -> Res[None]:
+    async def register(self, *types: type) -> Res[None]:
         """
         Register codes for types.
 
         No err is raised on existing code redefinition. Err is printed on
         invalid codes.
+
+        Be careful with this method, once called it enables a lock on msg
+        serialization and other processes for the time of codes modification.
+        Also, after the registering, all the clients gets notified about
+        the changed codes with the repeated welcome message.
+
+        So it's better to be called once and at the start of the program.
         """
-        updr = await Code.upd(types)
+        updr = await Code.upd(types, self.DEFAULT_CODE_ORDER)
         if isinstance(updr, Err):
             return updr
-        return Ok(None)
+        return await self._rewelcome_all_conns()
 
     @classmethod
     def register_rpc(cls, fn: RpcFn) -> Res[None]:
         """
         Registers server rpc (srpc).
         """
-        code = fn.__name__ # type: ignore
+        rpc_code = fn.__name__ # type: ignore
 
-        if code in cls._code_to_rpcfn:
-            return Err(ValErr(f"rpc code {code} is already registered"))
-        if not code.startswith("srpc__"):
-            return Err(ValErr(f"code {code} must start with \"srpc__\""))
+        if rpc_code in cls._rpccode_to_fn:
+            return Err(ValErr(f"rpc code {rpc_code} is already registered"))
+        if not rpc_code.startswith("srpc__"):
+            return Err(ValErr(f"code {rpc_code} must start with \"srpc__\""))
 
         sig = signature(fn)
         sig_param = sig.parameters.get("args")
         if not sig_param:
             return Err(ValErr(
-                f"rpc fn {fn} with code {code} must accept"
+                f"rpc fn {fn} with code {rpc_code} must accept"
                 " \"args: AnyBaseModel\" as it's sole argument"))
         args_type = sig_param.annotation
         if args_type is BaseModel:
             return Err(ValErr(
-                f"rpc fn {fn} with code {code} cannot declare BaseModel"
+                f"rpc fn {fn} with code {rpc_code} cannot declare BaseModel"
                 " as it's direct args type"))
         if not issubclass(args_type, BaseModel):
             return Err(ValErr(
-                f"rpc fn {fn} with code {code} must accept args in form"
+                f"rpc fn {fn} with code {rpc_code} must accept args in form"
                 f" of BaseModel, got {args_type}"))
 
-        cls._code_to_rpcfn[code] = (fn, args_type)
+        cls._rpccode_to_fn[rpc_code] = (fn, args_type)
         return Ok(None)
 
     async def postinit(self):
-        if not self._preserialized_welcome_msg:
-            self._preserialized_welcome_msg = Msg(
-                data=Welcome()).serialize_for_net()
         self._is_post_initd = True
 
     @classmethod
@@ -399,7 +421,7 @@ class ServerBus(Singleton):
             atransport.inp_queue_processor.cancel()
             atransport.out_queue_processor.cancel()
 
-        cls._code_to_rpcfn.clear()
+        cls._rpccode_to_fn.clear()
         Code._code_to_type.clear()
 
         ServerBus.try_discard()
@@ -528,10 +550,10 @@ class ServerBus(Singleton):
 
     async def _call_rpc(self, req: SrpcSend):
         code, _ = req.key.split(":")
-        if code not in self._code_to_rpcfn:
+        if code not in self._rpccode_to_fn:
             log.err(f"no such rpc code {code} for req {req} => skip")
             return
-        fn, args_type = self._code_to_rpcfn[code]
+        fn, args_type = self._rpccode_to_fn[code]
 
         _rxcat_ctx.set(self._get_ctx_dict_for_msg(req))
 
@@ -762,7 +784,7 @@ class ServerBus(Singleton):
         Received Exceptions are additionally logged if
         cfg.trace_errs_on_pub == True.
         """
-        code_res = get_code(data)
+        code_res = Code.get_from_type(type(data))
         if isinstance(code_res, Err):
             return code_res
         code = code_res.ok_value
@@ -806,7 +828,7 @@ class ServerBus(Singleton):
 
         msg = Msg(
             lsid=lsid,
-            code=code,
+            skip__code=code,
             data=data,
             skip__target_connsids=target_connsids
         )

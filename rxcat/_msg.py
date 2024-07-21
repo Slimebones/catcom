@@ -38,12 +38,12 @@ class Code:
     _lock: Lock = Lock()
 
     @classmethod
-    async def get_codes(cls) -> Res[list[str]]:
+    async def get_registered_codes(cls) -> Res[list[str]]:
         await cls._lock.wait()
         return Ok(cls._codes.copy())
 
     @classmethod
-    async def get_code(cls, t: type) -> Res[str]:
+    async def get_registered_code(cls, t: type) -> Res[str]:
         await cls._lock.wait()
         for c, t_ in cls._code_to_type.items():
             if t_ is t:
@@ -51,14 +51,14 @@ class Code:
         return Err(ValErr(f"code {code} is not registered"))
 
     @classmethod
-    async def get_codeid(cls, code: str) -> Res[int]:
+    async def get_registered_codeid(cls, code: str) -> Res[int]:
         await cls._lock.wait()
         if code not in cls._codes:
             return Err(ValErr(f"code {code} is not registered"))
         return Ok(cls._codes.index(code))
 
     @classmethod
-    async def get_type(cls, code: str) -> Res[type]:
+    async def get_registered_type(cls, code: str) -> Res[type]:
         await cls._lock.wait()
         if code not in cls._code_to_type:
             return Err(ValErr(f"code {code} is not registered"))
@@ -192,7 +192,7 @@ class Msg(BaseModel):
 
     # since we won't change data type for an existing message, we keep
     # code with the data
-    code: str
+    skip__code: str
     data: Mdata
 
     skip__err: Exception | None = None
@@ -311,7 +311,8 @@ TMsg = TypeVar("TMsg", bound=Msg)
 
 # lowercase to not conflict with result.Ok
 class ok:
-    def code(self) -> str:
+    @staticmethod
+    def code() -> str:
         return "rxcat__ok"
 
 class Welcome(BaseModel):
@@ -320,7 +321,8 @@ class Welcome(BaseModel):
     """
     codes: list[str]
 
-    def code(self) -> str:
+    @staticmethod
+    def code() -> str:
         return "rxcat__welcome"
 
 class Register(BaseModel):
@@ -338,5 +340,6 @@ class Register(BaseModel):
     Extra client data passed to the resource server.
     """
 
-    def code(self) -> str:
+    @staticmethod
+    def code() -> str:
         return "rxcat__register"
