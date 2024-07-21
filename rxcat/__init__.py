@@ -258,6 +258,8 @@ class ServerBus(Singleton):
         return _rxcat_ctx.get().copy()
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
+        self.register_codes({})
+
         self._cfg = cfg
 
         self._init_transports()
@@ -326,27 +328,32 @@ class ServerBus(Singleton):
         return self._is_initd
 
     @classmethod
-    def register_codes(cls, code_to_type: dict[str, type]) -> Res[None]:
+    def get_registered_type(cls, code: str) -> Res[type]:
+        pass
+
+    @classmethod
+    def register_codes(cls, types: Iterable[type]) -> Res[None]:
         """
-        Register codes and types associated with them.
+        Register codes for types.
 
         No err is raised on existing code redefinition. Err is printed on
         invalid codes.
         """
-        code_to_type = code_to_type.copy()
-        keys_to_del = []
+        for t in types:
+            code_res = get_code(t)
+            if isinstance(code_res, Err):
+                log.err(
+                    f"cannot get code {code}: {code_res.err_value} => skip")
+                continue
+            code = code_res.ok_value
 
-        for k in code_to_type.keys():
-            validate_res = validate_code(k)
+            validate_res = validate_code(code)
             if isinstance(validate_res, Err):
                 log.err(
-                    f"code {k} is not valid: {validate_res.err_value} => skip")
-                keys_to_del.append(k)
+                    f"code {code} is not valid: {validate_res.err_value} => skip")
                 continue
-        for k in keys_to_del:
-            del code_to_type[k]
 
-        CodeStorage.code_to_type.update(code_to_type)
+            CodeStorage.code_to_type[code] = t
 
         return Ok(None)
 

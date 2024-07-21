@@ -45,17 +45,17 @@ def validate_code(code: str) -> Res[None]:
         return Err(ValErr(f"code {code} exceeds maxlen 256"))
     return Ok(None)
 
-def get_code(data: Mdata) -> Res[str]:
-    if isinstance(data, CodedMsgData):
-        code = data.code
+def get_code(t: type) -> Res[str]:
+    if isinstance(t, CodedMsgData):
+        code = t.code
     else:
-        codefn = getattr(data, "code", None)
+        codefn = getattr(t, "code", None)
         if codefn is None:
             return Err(ValErr(
-                f"msg data {data} must define \"code() -> str\" method"))
+                f"msg data {t} must define \"code() -> str\" method"))
         if not isfunction(codefn):
             return Err(ValErr(
-                f"msg data {data} \"code\" attribute must be function,"
+                f"msg data {t} \"code\" attribute must be function,"
                 f" got {codefn}"))
         try:
             code = codefn()
@@ -63,7 +63,7 @@ def get_code(data: Mdata) -> Res[str]:
             log.catch(err)
             return Err(ValErr(
                 f"err {get_fully_qualified_name(err)} occured during"
-                f" msg data {data} {codefn} method call #~stacktrace"))
+                f" msg data {t} {codefn} method call #~stacktrace"))
 
     validate_res = validate_code(code)
     if isinstance(validate_res, Err):
@@ -157,7 +157,7 @@ class Msg(BaseModel):
 
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
-    def serialize_for_net(self) -> dict:
+    def serialize_for_net(self) -> Res[dict]:
         res = self.model_dump()
 
         # del server msg fields - we should do these before key deletion setup
@@ -188,7 +188,7 @@ class Msg(BaseModel):
         for k in keys_to_del:
             del res[k]
 
-        return res
+        return Ok(res)
 
     @classmethod
     def deserialize_from_net(cls, data: dict) -> Res[Self]:
