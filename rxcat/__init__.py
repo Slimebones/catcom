@@ -4,43 +4,41 @@ Rxcat implementation for Python.
 
 import asyncio
 import contextlib
-from enum import Enum
 import functools
 import typing
 from asyncio import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
+from enum import Enum
 from inspect import isclass, signature
 from typing import (
     Any,
     ClassVar,
-    Coroutine,
     Generic,
     Iterable,
-    Literal,
     Protocol,
     runtime_checkable,
 )
-from pykit.uuid import uuid4
 
 from pydantic import BaseModel
-from pykit.err import AlreadyProcessedErr, InpErr, NotFoundErr, ValErr
+from pykit.code import Code, get_fqname
+from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
 from pykit.pointer import Pointer
-from pykit.res import Err, Ok, UnwrapErr, Res, valerr
-from pykit.err import ErrDto
+from pykit.res import Err, Ok, Res, UnwrapErr, valerr
 from pykit.singleton import Singleton
+from pykit.uuid import uuid4
 
 from rxcat._msg import (
     Mdata,
-    TMdata,
     Msg,
     Register,
-    TMsg,
+    TMdata_contra,
     Welcome,
+    ok,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcSend, SrpcRecv, TRpcFn
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend, TRpcFn
 from rxcat._transport import (
     ActiveTransport,
     Conn,
@@ -51,8 +49,6 @@ from rxcat._transport import (
 )
 from rxcat._udp import Udp
 from rxcat._ws import Ws
-from rxcat._msg import ok
-from pykit.code import Code, Coded, get_fqname
 
 __all__ = [
     "ServerBus",
@@ -134,8 +130,8 @@ class Internal__BusUnhandledErr(Exception):
         )
 
 SubFnRetval = Mdata | Iterable[Mdata] | RetState | None
-class SubFn(Protocol, Generic[TMdata]):
-    async def __call__(self, data: TMdata) -> SubFnRetval: ...
+class SubFn(Protocol, Generic[TMdata_contra]):
+    async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
 
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
@@ -163,11 +159,6 @@ class PubOpts(BaseModel):
     send_to_net: bool = True
     """
     Will send to net if True and code is defined for the msg passed.
-    """
-
-    log_errs: bool = True
-    """
-    Whether to log information about published errs.
     """
 
     pubr__timeout: float | None = None
@@ -252,7 +243,7 @@ class ServerBus(Singleton):
         port=3000,
         route="rx"
     )
-    DEFAULT_CODE_ORDER: list[str] = [
+    DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
         "rxcat__register_req",
         "rxcat__welcome"
     ]
@@ -744,6 +735,64 @@ class ServerBus(Singleton):
             return Ok(val)
         return Err(NotFoundErr(f"\"{key}\" entry in rxcat ctx"))
 
+    def _unpack_err(self, data: Exception, trace: bool) -> Mdata:
+        if isinstance(data, Exception):
+            if isinstance(data, UnwrapErr):
+                res = data.result
+                assert isinstance(res, Err)
+                if isinstance(res.errval, Exception):
+                    data = res.errval
+                else:
+                    data = ResourceServerErr(
+                        f"got res with err value {res.errval},"
+                        " which is not an instance of Exception")
+            if trace:
+                log.err(f"pub err {get_fqname(data)} #stacktrace")
+                log.catch(data)
+        return data
+
+    def _unpack_lsid(self, lsid: str | None) -> Res[str | None]:
+        if lsid == "$ctx.msid":
+            # by default we publish as response to current message, so we
+            # use the current's message sid as linked sid
+            msid_res = self.get_ctx_key("msid")
+            if isinstance(msid_res, Err):
+                return msid_res
+            lsid = msid_res.okval
+            assert isinstance(lsid, str)
+        elif isinstance(lsid, str) and lsid.startswith("$"):
+            return valerr(f"unrecognized PubOpts.lsid operator: {lsid}")
+        return Ok(lsid)
+
+    def _make_msg(self, data: Mdata, opts: PubOpts) -> Res[Msg]:
+        code_res = Code.get_from_type(type(data))
+        if isinstance(code_res, Err):
+            return code_res
+        code = code_res.okval
+
+        data = self._unpack_err(data, self._cfg.trace_errs_on_pub)
+
+        lsid_res = self._unpack_lsid(opts.lsid)
+        if isinstance(lsid_res, Err):
+            return lsid_res
+        lsid = lsid_res.okval
+
+        target_connsids = None
+        if opts.target_connsids:
+            target_connsids = opts.target_connsids
+        else:
+            # try to get ctx connsid, otherwise left as none
+            connsid_res = self.get_ctx_key("connsid")
+            if isinstance(connsid_res, Ok):
+                assert isinstance(connsid_res.okval, str)
+                target_connsids = [connsid_res.okval]
+
+        return Ok(Msg(
+            lsid=lsid,
+            skip__datacode=code,
+            data=data,
+            skip__target_connsids=target_connsids))
+
     async def pub(
             self,
             data: Mdata,
@@ -756,52 +805,11 @@ class ServerBus(Singleton):
         Received Exceptions are additionally logged if
         cfg.trace_errs_on_pub == True.
         """
-        code_res = Code.get_from_type(type(data))
-        if isinstance(code_res, Err):
-            return code_res
-        code = code_res.okval
-
-        if isinstance(data, Exception):
-            if isinstance(data, UnwrapErr):
-                res = data.result
-                assert isinstance(res, Err)
-                if isinstance(res.errval, Exception):
-                    data = res.errval
-                else:
-                    data = ResourceServerErr(
-                        f"got res with err value {res.errval},"
-                        " which is not an instance of Exception")
-            if opts.log_errs:
-                log.err(f"pub err {get_fqname(data)} #stacktrace")
-                log.catch(data)
-
-        lsid = opts.lsid
-        if lsid == "$ctx.msid":
-            # by default we publish as response to current message, so we
-            # use the current's message sid as linked sid
-            msid_res = self.get_ctx_key("msid")
-            if isinstance(msid_res, Err):
-                return msid_res
-            lsid = msid_res.okval
-            assert isinstance(lsid, str)
-        elif isinstance(lsid, str) and lsid.startswith("$"):
-            return valerr(f"unrecognized PubOpts.lsid operator: {lsid}")
-
-        target_connsids = None
-        if opts.target_connsids:
-            target_connsids = opts.target_connsids
-        else:
-            # try to get ctx connsid, otherwise left as none
-            connsid_res = self.get_ctx_key("connsid")
-            if isinstance(connsid_res, Ok):
-                assert isinstance(connsid_res.okval, str)
-                target_connsids = [connsid_res.okval]
-
-        msg = Msg(
-            lsid=lsid,
-            skip__datacode=code,
-            data=data,
-            skip__target_connsids=target_connsids)
+        msg_res = self._make_msg(data, opts)
+        if isinstance(msg_res, Err):
+            return msg_res
+        msg = msg_res.okval
+        code = msg.skip__datacode
 
         r = self._check_norpc_mdata(msg, "publication")
         if isinstance(r, Err):
@@ -954,8 +962,8 @@ class ServerBus(Singleton):
                 not iscls
                 and (isinstance(data, (SrpcSend, SrpcRecv))))):
             return Err(ValErr(
-                f"mdata {data} in context of \"{disp_ctx}\" cannot be associated"
-                " with rpc"))
+                f"mdata {data} in context of \"{disp_ctx}\" cannot be"
+                " associated with rpc"))
         return Ok(None)
 
     def _apply_opts_to_subfn(

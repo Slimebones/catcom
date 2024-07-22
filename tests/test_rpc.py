@@ -1,17 +1,16 @@
 import asyncio
 
 from pydantic import BaseModel
+from pykit.code import get_fqname
 from pykit.err import ValErr
-from pykit.obj import get_fully_qualified_name
-from pykit.rand import RandomUtils
-from pykit.res import Res, eject
-from pykit.res import Err, Ok
+from pykit.res import Err, Ok, Res
+from pykit.uuid import uuid4
 
 from rxcat import ConnArgs, ServerBus
 from tests.conftest import (
     MockConn,
-    find_errcodeid_in_welcome_rmsg,
     find_datacodeid_in_welcome_rmsg,
+    find_errcodeid_in_welcome_rmsg,
 )
 
 
@@ -33,15 +32,15 @@ async def test_main(server_bus: ServerBus):
     conn_task_1 = asyncio.create_task(server_bus.conn(conn_1))
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
-    rxcat_rpc_req_datacodeid = eject(find_datacodeid_in_welcome_rmsg(
-        "rxcat__srpc_req", welcome_rmsg))
+    rxcat_rpc_req_datacodeid = find_datacodeid_in_welcome_rmsg(
+        "rxcat__srpc_req", welcome_rmsg).eject()
 
-    eject(ServerBus.register_rpc(srpc__update_email))
+    ServerBus.register_rpc(srpc__update_email).eject()
 
-    rpc_token = RandomUtils.makeid()
+    rpc_token = uuid4()
     rpc_key = "srpc__update_email:" + rpc_token
     await conn_1.client__send({
-        "msid": RandomUtils.makeid(),
+        "msid": uuid4(),
         "datacodeid": rxcat_rpc_req_datacodeid,
         "key": rpc_key,
         "args": {"username": "test_username", "email": "test_email"}
@@ -50,10 +49,10 @@ async def test_main(server_bus: ServerBus):
     assert rpc_data["key"] == rpc_key
     assert rpc_data["val"] == 0
 
-    rpc_token = RandomUtils.makeid()
+    rpc_token = uuid4()
     rpc_key = "srpc__update_email:" + rpc_token
     await conn_1.client__send({
-        "msid": RandomUtils.makeid(),
+        "msid": uuid4(),
         "datacodeid": rxcat_rpc_req_datacodeid,
         "key": rpc_key,
         "args": {"username": "throw", "email": "test_email"}
@@ -61,9 +60,9 @@ async def test_main(server_bus: ServerBus):
     rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
     assert rpc_data["key"] == rpc_key
     val = rpc_data["val"]
-    assert val["datacodeid"] == eject(
-        find_errcodeid_in_welcome_rmsg("val-err", welcome_rmsg))
+    assert val["datacodeid"] == \
+        find_errcodeid_in_welcome_rmsg("val-err", welcome_rmsg).eject()
     assert val["msg"] == "hello"
-    assert val["name"] == get_fully_qualified_name(ValErr())
+    assert val["name"] == get_fqname(ValErr())
 
     conn_task_1.cancel()

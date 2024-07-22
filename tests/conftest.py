@@ -2,19 +2,16 @@ from asyncio import Queue
 from contextvars import ContextVar
 from typing import Self
 
-from pydantic import BaseModel
 import pytest_asyncio
+from pydantic import BaseModel
 from pykit.err import ValErr
-from pykit.res import Res
-from pykit.res import Err, Ok
+from pykit.res import Err, Ok, Res
 
 from rxcat import (
     Conn,
     ConnArgs,
-    Msg,
     ServerBus,
     ServerBusCfg,
-    SrpcSend,
     Transport,
 )
 

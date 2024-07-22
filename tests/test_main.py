@@ -2,8 +2,6 @@ from pykit.check import check
 from pykit.code import Code, get_fqname
 from pykit.err import ValErr
 from pykit.err_utils import ErrDto
-from pykit.res import Res
-from pykit.res import Err, Ok
 
 from rxcat import ServerBus
 from tests.conftest import Mock_1, Mock_2

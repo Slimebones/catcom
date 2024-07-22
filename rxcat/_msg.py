@@ -1,17 +1,14 @@
-from inspect import isfunction
-from typing import Any, Iterable, Self, TypeVar
-import typing
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel
 from pykit.code import Code
-from pykit.err import NotFoundErr, ValErr
+from pykit.err import ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
-from pykit.res import Res
-from pykit.res import Err, Ok
+from pykit.res import Err, Ok, Res
 from pykit.uuid import uuid4
 
-TMdata = TypeVar("TMdata", contravariant=True)
+TMdata_contra = TypeVar("TMdata_contra", contravariant=True)
 Mdata = Any
 """
 Any custom data bus user interested in. Must be serializable and implement
@@ -142,14 +139,21 @@ class Msg(BaseModel):
         if not isinstance(codeid, int):
             return Err(ValErr(
                 f"invalid type of codeid {codeid}, expected int"))
+
         code_res = await Code.get_registered_code_by_id(codeid)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
         if not Code.has_code(code):
             return Err(ValErr(f"unregistered code {code}"))
-        data["skip__code"] = code
-        custom_type = Code._code_to_type[code]
+
+        data["skip__datacode"] = code
+
+        custom_type_res = await Code.get_registered_type(code)
+        if isinstance(custom_type_res, Err):
+            return custom_type_res
+        custom_type = custom_type_res.okval
+
         deserialize_custom = getattr(custom_type, "deserialize", None)
         if issubclass(custom_type, BaseModel):
             if not isinstance(custom, dict):

@@ -1,19 +1,17 @@
 import asyncio
 
-from pykit.code import Code
-from pykit.res import Res
+from pykit.res import Ok, Res
 from pykit.uuid import uuid4
-from rxcat import ok
-from pykit.res import Ok
 
 from rxcat import (
     ConnArgs,
-    SrpcRecv,
     EmptyRpcArgs,
     ServerBus,
     ServerBusCfg,
+    SrpcRecv,
     SrpcSend,
     Transport,
+    ok,
 )
 from rxcat.code_ext import get_registered_codeid_by_type
 from tests.conftest import (

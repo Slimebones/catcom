@@ -1,5 +1,5 @@
 from pykit.code import Code
-from pykit.res import Res, Err
+from pykit.res import Err, Res
 
 
 async def get_registered_codeid_by_type(t: type) -> Res[int]:
