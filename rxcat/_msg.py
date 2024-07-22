@@ -52,7 +52,8 @@ class Msg(BaseModel):
     """
 
     # since we won't change data type for an existing message, we keep
-    # code with the data
+    # code with the data. Also it's placed here and not in ``data`` to not
+    # interfere with custom fields, and for easier access
     skip__datacode: str
     """
     Code of msg's data.
@@ -128,14 +129,11 @@ class Msg(BaseModel):
         return Ok(final)
 
     @classmethod
-    async def deserialize_from_net(cls, data: dict) -> Res[Self]:
-        """Recovers model of this class using dictionary."""
-        # parse mdata separately according to it's registered type
-        custom = data.get("data", None)
-        if "datacodeid" not in data:
-            return Err(ValErr(f"data {data} must have \"codeid\" field"))
-        codeid = data["datacodeid"]
-        del data["datacodeid"]
+    async def _parse_rmsg_code(cls, rmsg: dict) -> Res[str]:
+        if "datacodeid" not in rmsg:
+            return Err(ValErr(f"data {rmsg} must have \"codeid\" field"))
+        codeid = rmsg["datacodeid"]
+        del rmsg["datacodeid"]
         if not isinstance(codeid, int):
             return Err(ValErr(
                 f"invalid type of codeid {codeid}, expected int"))
@@ -147,7 +145,18 @@ class Msg(BaseModel):
         if not Code.has_code(code):
             return Err(ValErr(f"unregistered code {code}"))
 
-        data["skip__datacode"] = code
+        return Ok(code)
+
+    @classmethod
+    async def _parse_rmsg_data(cls, rmsg: dict) -> Res[Mdata]:
+        data = rmsg.get("data", None)
+
+        code_res = await cls._parse_rmsg_code(rmsg)
+        if isinstance(code_res, Err):
+            return code_res
+        code = code_res.okval
+
+        rmsg["skip__datacode"] = code
 
         custom_type_res = await Code.get_registered_type(code)
         if isinstance(custom_type_res, Err):
@@ -156,25 +165,36 @@ class Msg(BaseModel):
 
         deserialize_custom = getattr(custom_type, "deserialize", None)
         if issubclass(custom_type, BaseModel):
-            if not isinstance(custom, dict):
+            if not isinstance(data, dict):
                 return Err(ValErr(
                     "if custom type is BaseModel, data must be dict,"
-                    f" got {data}"))
-            custom = custom_type(**custom)
+                    f" got {rmsg}"))
+            data = custom_type(**data)
         elif deserialize_custom is not None:
-            custom = deserialize_custom(custom)
+            data = deserialize_custom(data)
         else:
-            custom = custom_type(custom)
+            data = custom_type(data)
 
-        if "lsid" not in data:
-            data["lsid"] = None
+        return Ok(data)
 
-        data = data.copy()
+    @classmethod
+    async def deserialize_from_net(cls, rmsg: dict) -> Res[Self]:
+        """Recovers model of this class using dictionary."""
+        # parse mdata separately according to it's registered type
+        data_res = await cls._parse_rmsg_data(rmsg)
+        if isinstance(data_res, Err):
+            return data_res
+        data = data_res.okval
+
+        if "lsid" not in rmsg:
+            rmsg["lsid"] = None
+
+        rmsg = rmsg.copy()
         # don't do redundant serialization of Any type
-        if "data" in data:
-            del data["data"]
-        model = cls.model_validate(data.copy())
-        model.data = custom
+        if "data" in rmsg:
+            del rmsg["data"]
+        model = cls.model_validate(rmsg.copy())
+        model.data = data
         return Ok(model)
 
 TMsg = TypeVar("TMsg", bound=Msg)
