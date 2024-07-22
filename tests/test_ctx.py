@@ -34,7 +34,9 @@ async def test_subfn(server_bus: ServerBus):
     await conn.client__send({
         "sid": uuid4(),
         "datacodeid": (await get_regd_codeid_by_type(Mock_1)).eject(),
-        "num": 1
+        "data": {
+            "num": 1
+        }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
     assert rmsg["datacodeid"] == get_regd_codeid_by_type(ok)

@@ -157,10 +157,14 @@ class Msg(BaseModel):
 
         deserialize_custom = getattr(custom_type, "deserialize", None)
         if issubclass(custom_type, BaseModel):
-            if not isinstance(data, dict):
+            # for case of rmsg with empty data field, we'll try to initialize
+            # the type without any fields (empty dict)
+            if data is None:
+                data = {}
+            elif not isinstance(data, dict):
                 return Err(ValErr(
-                    "if custom type is BaseModel, data must be dict,"
-                    f" got {type(data)} : {data}"))
+                    f"if custom type ({custom_type}) is a BaseModel, data"
+                    f" {data} must be a dict, got type {type(data)}"))
             data = custom_type(**data)
         elif deserialize_custom is not None:
             data = deserialize_custom(data)
