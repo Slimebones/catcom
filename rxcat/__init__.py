@@ -25,7 +25,7 @@ from pykit.code import Code, get_fqname
 from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
-from pykit.pointer import Pointer
+from pykit.ptr import Ptr
 from pykit.res import Err, Ok, Res, UnwrapErr, valerr
 from pykit.singleton import Singleton
 from pykit.uuid import uuid4
@@ -560,7 +560,7 @@ class ServerBus(Singleton):
             task.add_done_callback(self._rpc_tasks.discard)
             return
         # publish to inner bus with no duplicate net resending
-        await self.pub(msg, PubOpts(send_to_net=False)).atrack()
+        await (await self.pub(msg, PubOpts(send_to_net=False))).atrack()
 
     async def _call_rpc(self, msg: Msg):
         data = msg.data
@@ -719,9 +719,9 @@ class ServerBus(Singleton):
         If the response is Exception, it is wrapped to res::Err.
         """
         aevt = asyncio.Event()
-        ptr: Pointer[Mdata] = Pointer(target=None)
+        ptr: Ptr[Mdata] = Ptr(target=None)
 
-        def wrapper(aevt: asyncio.Event, ptr: Pointer[Mdata]):
+        def wrapper(aevt: asyncio.Event, ptr: Ptr[Mdata]):
             async def fn(data: Mdata):
                 aevt.set()
                 ptr.target = data
@@ -954,9 +954,9 @@ class ServerBus(Singleton):
         lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx::msid")
         pub_opts = PubOpts(lsid=lsid)
         for val in vals:
-            # TODO: replace ignore() with warn() as it gets available in
-            #       pykit::res
-            (await self.pub(val, pub_opts)).ignore()
+            (await self.pub(val, pub_opts)).inspect_err(
+                lambda reserr: log.warn(
+                    f"err {reserr} during subfn {subfn} pub"))
 
     def set_ctx_subfn_lsid(self, lsid: str | None):
         """
