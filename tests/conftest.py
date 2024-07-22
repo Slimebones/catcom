@@ -45,6 +45,10 @@ async def server_bus() -> ServerBus:
                 is_server=True,
                 conn_type=MockConn,
                 server__reg_process="none")
+        ],
+        reg_types=[
+            Mock_1,
+            Mock_2
         ])
     await asyncio.wait_for(bus.init(cfg), 1)
     return bus

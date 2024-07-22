@@ -216,6 +216,11 @@ class ServerBusCfg(BaseModel):
     will be returned.
     """
 
+    reg_types: Iterable[type] | None = None
+    """
+    Types to register on bus initialization.
+    """
+
     reg_fn: RegFn | None = None
     """
     Function used to reg client.
@@ -258,11 +263,7 @@ class ServerBus(Singleton):
     def get_ctx(self) -> dict:
         return _rxcat_ctx.get().copy()
 
-    async def init(
-            self,
-            cfg: ServerBusCfg = ServerBusCfg(),
-            *,
-            reg_types: Iterable[type] | None = None):
+    async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
         self._cfg = cfg
 
         self._init_transports()
@@ -287,13 +288,16 @@ class ServerBus(Singleton):
 
         self._rpc_tasks: set[asyncio.Task] = set()
 
-        (await self.reg(
+        reg_types = [] if cfg.reg_types is None else cfg.reg_types
+        (await self.reg([
             Reg,
             Welcome,
             ok,
             ErrDto,
             SrpcSend,
-            SrpcRecv)).eject()
+            SrpcRecv,
+            *reg_types
+        ])).eject()
 
     def _init_transports(self):
         self._conn_type_to_atransport: dict[type[Conn], ActiveTransport] = {}
@@ -362,7 +366,7 @@ class ServerBus(Singleton):
     async def get_regd_type(cls, code: str) -> Res[type]:
         return await Code.get_regd_type(code)
 
-    async def reg(self, *types: type) -> Res[None]:
+    async def reg(self, types: Iterable[type]) -> Res[None]:
         """
         Reg codes for types.
 
