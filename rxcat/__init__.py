@@ -491,7 +491,7 @@ class ServerBus(Singleton):
     async def _read_first_msg(
             self, conn: Conn, atransport: ActiveTransport) -> Res:
         rmsg = await self._receive_from_conn(conn, atransport)
-        msg = await self.parse_rmsg(rmsg, conn)
+        msg = await self._parse_rmsg(rmsg, conn)
         if not msg:
             return Err(ValErr("failed to parse first msg from"))
         if not isinstance(msg, Reg):
@@ -524,7 +524,7 @@ class ServerBus(Singleton):
                 with contextlib.suppress(Exception):
                     # we don't pass whole conn to avoid control leaks
                     await transport.on_recv(conn.sid, rmsg)
-            msg_res = await self.parse_rmsg(rmsg, conn)
+            msg_res = await self._parse_rmsg(rmsg, conn)
             if isinstance(msg_res, Err):
                 log.err(f"err during rmsg {rmsg} parsing #stacktrace")
                 log.catch(msg_res.errval)
@@ -549,7 +549,7 @@ class ServerBus(Singleton):
     async def _accept_net_msg(self, msg: Msg):
         if isinstance(msg.data, SrpcRecv):
             log.err(
-                f"server bus won't accept RpcSend messages, got {msg}"
+                f"server bus won't accept RpcRecv messages, got {msg}"
                 " => skip")
             return
         elif isinstance(msg.data, SrpcSend):
@@ -560,7 +560,7 @@ class ServerBus(Singleton):
             task.add_done_callback(self._rpc_tasks.discard)
             return
         # publish to inner bus with no duplicate net resending
-        await self.pub(msg, PubOpts(send_to_net=False))
+        await self.pub(msg, PubOpts(send_to_net=False)).atrack()
 
     async def _call_rpc(self, msg: Msg):
         data = msg.data
@@ -619,7 +619,7 @@ class ServerBus(Singleton):
         # subscribe to this
         await self._pub_msg_to_net(evt)
 
-    async def parse_rmsg(
+    async def _parse_rmsg(
             self, rmsg: dict, conn: Conn) -> Res[Msg]:
         msid: str | None = rmsg.get("sid", None)
         if not msid:
@@ -850,6 +850,7 @@ class ServerBus(Singleton):
         if opts.send_to_net:
             await self._pub_msg_to_net(msg)
 
+        print(self._code_to_subfns)
         if opts.send_to_inner and code in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
 

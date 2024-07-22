@@ -30,7 +30,7 @@ async def test_subfn(server_bus: ServerBus):
     await server_bus.sub(Mock_1, f)
     conn_task = asyncio.create_task(server_bus.conn(conn))
     # recv welcome
-    print(await asyncio.wait_for(conn.client__recv(), 1))
+    await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
         "datacodeid": (await get_regd_codeid_by_type(Mock_1)).eject(),

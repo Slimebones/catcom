@@ -187,8 +187,7 @@ class Msg(BaseModel):
 
         rmsg = rmsg.copy()
         # don't do redundant serialization of Any type
-        if "data" in rmsg:
-            del rmsg["data"]
+        rmsg["data"] = None
         model = cls.model_validate(rmsg.copy())
         model.data = data
         return Ok(model)
