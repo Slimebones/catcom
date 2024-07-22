@@ -137,7 +137,7 @@ class SubFn(Protocol, Generic[TMdata_contra]):
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
 
-    target_connsids: Iterable[str] | None = None
+    target_connsids: list[str] | None = None
     """
     Connection sids to publish to.
 
@@ -604,7 +604,7 @@ class ServerBus(Singleton):
         # hood
         evt = Msg(
             lsid=msg.sid,
-            skip__target_connsids=[msg.connsid],
+            skip__target_connsids=[msg.skip__connsid],
             key=data.key,
             val=val)
         # we publish directly to the net since inner participants can't
@@ -915,9 +915,9 @@ class ServerBus(Singleton):
                 log.catch(err)
                 return
             async with ctx_manager:
-                res = await subfn(msg)
+                res = await subfn(msg.data)
         else:
-            res = await subfn(msg)
+            res = await subfn(msg.data)
 
         vals = []
         if isinstance(res, RetState):
@@ -929,7 +929,7 @@ class ServerBus(Singleton):
             try:
                 # safer way to check, instead of isinstance(res, Iterable)
                 res.iter()  # type: ignore
-            except TypeError:
+            except (TypeError, AttributeError):
                 vals = [res]
             else:
                 vals = typing.cast(Iterable[Mdata], res)

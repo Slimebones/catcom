@@ -46,7 +46,7 @@ class Msg(BaseModel):
     Otherwise it is always set to connsid.
     """
 
-    skip__target_connsids: list[str] = []
+    skip__target_connsids: list[str] | None = None
     """
     To which connsids the published msg should be addressed.
     """
@@ -71,14 +71,6 @@ class Msg(BaseModel):
     def __hash__(self) -> int:
         assert self.sid
         return hash(self.sid)
-
-    @property
-    def connsid(self) -> str | None:
-        return self.skip__connsid
-
-    @property
-    def target_connsids(self) -> list[str]:
-        return self.skip__target_connsids.copy()
 
     # todo: use orwynn indication funcs for serialize/deserialize methods
 
