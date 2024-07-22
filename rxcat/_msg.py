@@ -160,7 +160,7 @@ class Msg(BaseModel):
             if not isinstance(data, dict):
                 return Err(ValErr(
                     "if custom type is BaseModel, data must be dict,"
-                    f" got {rmsg}"))
+                    f" got {type(data)} : {data}"))
             data = custom_type(**data)
         elif deserialize_custom is not None:
             data = deserialize_custom(data)
