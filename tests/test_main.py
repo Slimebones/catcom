@@ -6,7 +6,7 @@ from pykit.res import Res
 from pykit.res import Err, Ok
 
 from rxcat import ServerBus
-from tests.conftest import Mock_1
+from tests.conftest import Mock_1, Mock_2
 
 
 async def test_subpub(server_bus: ServerBus):
@@ -15,7 +15,13 @@ async def test_subpub(server_bus: ServerBus):
 
     async def sub__mock_1(data: Mock_1):
         assert isinstance(data, Mock_1)
-        assert data.num == 5
+        assert data.num == 1
+        nonlocal flag1
+        flag1 = True
+
+    async def sub__mock_2(data: Mock_2):
+        assert isinstance(data, Mock_2)
+        assert data.num == 2
         nonlocal flag1
         flag1 = True
 
@@ -26,14 +32,13 @@ async def test_subpub(server_bus: ServerBus):
         flag2 = True
 
     await server_bus.sub(Mock_1, sub__mock_1)
+    await server_bus.sub(Mock_2, sub__mock_2)
     await server_bus.sub(ErrDto, sub__err)
-    await server_bus.sub(ErrEvt, sub__valerr)
-    await server_bus.sub(Mock_1, sub__mock_1)
-    await server_bus.pub(MockReq_1(num=1))
-    await server_bus.pub(MockReq_2(num=2))
+    await server_bus.pub(Mock_1(num=1))
+    await server_bus.pub(ValErr("hello"))
     await check.aexpect(
-        server_bus.pubr(MockReq_2(num=3)),
-        ValueErr)
+        server_bus.pubr(Mock_2(num=2)),
+        ValErr)
 
     assert flag1
     assert flag2

@@ -751,9 +751,7 @@ class ServerBus(Singleton):
         """
         Publishes data to the bus.
 
-        Received Exception instance will be parsed to ErrDto. If it is an
-        UnwrapError, it's value will be retrieved, validated as an Exception,
-        and then parsed to ErrDto.
+        For received UnwrapErr, it's res.errval will be used.
 
         Received Exceptions are additionally logged if
         cfg.trace_errs_on_pub == True.
@@ -773,14 +771,9 @@ class ServerBus(Singleton):
                     data = ResourceServerErr(
                         f"got res with err value {res.errval},"
                         " which is not an instance of Exception")
-            err = typing.cast(Exception, data)
             if opts.log_errs:
-                log.err(f"pub err {get_fqname(err)} #stacktrace")
-                log.catch(err)
-            err_dto_res = create_err_dto(data)
-            if isinstance(err_dto_res, Err):
-                return err_dto_res
-            data = err_dto_res.okval
+                log.err(f"pub err {get_fqname(data)} #stacktrace")
+                log.catch(data)
 
         lsid = opts.lsid
         if lsid == "$ctx.msid":

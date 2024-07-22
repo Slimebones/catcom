@@ -1,9 +1,11 @@
 from inspect import isfunction
 from typing import Any, Iterable, Self, TypeVar
+import typing
 
 from pydantic import BaseModel
 from pykit.code import Code
 from pykit.err import NotFoundErr, ValErr
+from pykit.err_utils import create_err_dto
 from pykit.log import log
 from pykit.res import Res
 from pykit.res import Err, Ok
@@ -84,6 +86,14 @@ class Msg(BaseModel):
 
     async def serialize_to_net(self) -> Res[dict]:
         final = self.model_dump()
+
+        data = final["data"]
+        # serialize exception to errdto
+        if isinstance(data, Exception):
+            err_dto_res = create_err_dto(data)
+            if isinstance(err_dto_res, Err):
+                return err_dto_res
+            data = err_dto_res.okval
 
         codeid_res = await Code.get_registered_codeid(self.skip__datacode)
         if isinstance(codeid_res, Err):
