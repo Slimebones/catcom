@@ -35,7 +35,7 @@ async def test_main(server_bus: ServerBus):
     rxcat_rpc_req_datacodeid = find_datacodeid_in_welcome_rmsg(
         "rxcat__srpc_req", welcome_rmsg).eject()
 
-    ServerBus.register_rpc(srpc__update_email).eject()
+    ServerBus.reg_rpc(srpc__update_email).eject()
 
     rpc_token = uuid4()
     rpc_key = "srpc__update_email:" + rpc_token

@@ -33,7 +33,7 @@ from pykit.uuid import uuid4
 from rxcat._msg import (
     Mdata,
     Msg,
-    Register,
+    Reg,
     TMdata_contra,
     Welcome,
     ok,
@@ -57,7 +57,7 @@ __all__ = [
     "ok",
 
     "ResourceServerErr",
-    "RegisterFn",
+    "RegFn",
 
     "Mdata",
 
@@ -81,7 +81,7 @@ __all__ = [
 # placed here and not at _rpc.py to avoid circulars
 def srpc():
     def inner(target: TRpcFn) -> TRpcFn:
-        ServerBus.register_rpc(target).eject()
+        ServerBus.reg_rpc(target).eject()
         return target
     return inner
 
@@ -96,9 +96,9 @@ class ResourceServerErr(Exception):
     def code(self) -> str:
         return "rxcat__resource_server_err"
 
-class ServerRegisterData(BaseModel):
+class ServerRegData(BaseModel):
     """
-    Data formed by the server on RegisterProtocol call.
+    Data formed by the server on RegProtocol call.
     """
     data: dict[str, Any] | None = None
     """
@@ -107,15 +107,15 @@ class ServerRegisterData(BaseModel):
     """
 
 @runtime_checkable
-class RegisterFn(Protocol):
+class RegFn(Protocol):
     """
-    Register function to be called on client RegisterReq arrival.
+    Reg function to be called on client RegReq arrival.
     """
     async def __call__(
         self,
         /,
         tokens: list[str],
-        client_data: dict[str, Any] | None) -> Res[ServerRegisterData]: ...
+        client_data: dict[str, Any] | None) -> Res[ServerRegData]: ...
 
 class Internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -216,12 +216,12 @@ class ServerBusCfg(BaseModel):
     will be returned.
     """
 
-    register_fn: RegisterFn | None = None
+    reg_fn: RegFn | None = None
     """
-    Function used to register client.
+    Function used to reg client.
 
     Defaults to None. If None, all users are still required to send
-    RegisterReq, but no alternative function will be called.
+    RegReq, but no alternative function will be called.
     """
 
     sub_ctxfn: Callable[[Msg], Awaitable[Res[CtxManager]]] | None = None
@@ -248,7 +248,7 @@ class ServerBus(Singleton):
         route="rx"
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
-        "rxcat__register",
+        "rxcat__reg",
         "rxcat__welcome"
     ]
 
@@ -258,7 +258,11 @@ class ServerBus(Singleton):
     def get_ctx(self) -> dict:
         return _rxcat_ctx.get().copy()
 
-    async def init(self, cfg: ServerBusCfg = ServerBusCfg(), *, types_to_reg):
+    async def init(
+            self,
+            cfg: ServerBusCfg = ServerBusCfg(),
+            *,
+            reg_types: Iterable[type] | None = None):
         self._cfg = cfg
 
         self._init_transports()
@@ -283,8 +287,8 @@ class ServerBus(Singleton):
 
         self._rpc_tasks: set[asyncio.Task] = set()
 
-        (await self.register(
-            Register,
+        (await self.reg(
+            Reg,
             Welcome,
             ok,
             ErrDto,
@@ -299,7 +303,7 @@ class ServerBus(Singleton):
         for transport in typing.cast(list[Transport], transports):
             if transport.conn_type in self._conn_type_to_atransport:
                 log.err(
-                    f"conn type {transport.conn_type} is already registered"
+                    f"conn type {transport.conn_type} is already regd"
                     " => skip")
                 continue
             if not transport.is_server:
@@ -323,7 +327,7 @@ class ServerBus(Singleton):
             self._conn_type_to_atransport[transport.conn_type] = atransport
 
     async def _set_welcome(self) -> Res[None]:
-        codes_res = await Code.get_registered_codes()
+        codes_res = await Code.get_regd_codes()
         if isinstance(codes_res, Err):
             return codes_res
         codes = codes_res.okval
@@ -355,19 +359,19 @@ class ServerBus(Singleton):
         return self._is_initd
 
     @classmethod
-    async def get_registered_type(cls, code: str) -> Res[type]:
-        return await Code.get_registered_type(code)
+    async def get_regd_type(cls, code: str) -> Res[type]:
+        return await Code.get_regd_type(code)
 
-    async def register(self, *types: type) -> Res[None]:
+    async def reg(self, *types: type) -> Res[None]:
         """
-        Register codes for types.
+        Reg codes for types.
 
         No err is raised on existing code redefinition. Err is printed on
         invalid codes.
 
         Be careful with this method, once called it enables a lock on msg
         serialization and other processes for the time of codes modification.
-        Also, after the registering, all the clients gets notified about
+        Also, after the reging, all the clients gets notified about
         the changed codes with the repeated welcome message.
 
         So it's better to be called once and at the start of the program.
@@ -378,14 +382,14 @@ class ServerBus(Singleton):
         return await self._set_welcome()
 
     @classmethod
-    def register_rpc(cls, fn: RpcFn) -> Res[None]:
+    def reg_rpc(cls, fn: RpcFn) -> Res[None]:
         """
-        Registers server rpc (srpc).
+        Regs server rpc (srpc).
         """
         rpc_code = fn.__name__ # type: ignore
 
         if rpc_code in cls._rpccode_to_fn:
-            return Err(ValErr(f"rpc code {rpc_code} is already registered"))
+            return Err(ValErr(f"rpc code {rpc_code} is already regd"))
         if not rpc_code.startswith("srpc__"):
             return Err(ValErr(f"code {rpc_code} must start with \"srpc__\""))
 
@@ -437,7 +441,7 @@ class ServerBus(Singleton):
         atransport = self._conn_type_to_atransport.get(type(conn), None)
         if atransport is None:
             log.err(
-                f"cannot find registered transport for conn {conn}"
+                f"cannot find regd transport for conn {conn}"
                 " => close conn")
             with contextlib.suppress(Exception):
                 await conn.close()
@@ -451,7 +455,7 @@ class ServerBus(Singleton):
         self._sid_to_conn[conn.sid] = conn
 
         try:
-            if atransport.transport.server__register_process == "register_req":
+            if atransport.transport.server__reg_process == "reg_req":
                 (await self._read_first_msg(conn, atransport)).eject()
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
@@ -486,20 +490,20 @@ class ServerBus(Singleton):
         msg = await self.parse_rmsg(rmsg, conn)
         if not msg:
             return Err(ValErr("failed to parse first msg from"))
-        if not isinstance(msg, Register):
+        if not isinstance(msg, Reg):
             return Err(ValErr(
-                f"first msg should be RegisterReq, got {msg}"))
+                f"first msg should be RegReq, got {msg}"))
 
-        register_res = Ok(None)
-        if self._cfg.register_fn is not None:
-            register_res = await self._cfg.register_fn(
+        reg_res = Ok(None)
+        if self._cfg.reg_fn is not None:
+            reg_res = await self._cfg.reg_fn(
                 msg.tokens, msg.data)
-            if isinstance(register_res, Err):
-                return register_res
+            if isinstance(reg_res, Err):
+                return reg_res
 
         # TODO:
-        #   send back register data for the client if register_res is Ok
-        return register_res
+        #   send back reg data for the client if reg_res is Ok
+        return reg_res
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:
@@ -664,7 +668,7 @@ class ServerBus(Singleton):
             code = code_res.okval
 
         if not Code.has_code(code):
-            return valerr(f"code {code} is not registered")
+            return valerr(f"code {code} is not regd")
 
         if code not in self._code_to_subfns:
             self._code_to_subfns[code] = []
@@ -779,7 +783,7 @@ class ServerBus(Singleton):
             return code_res
         code = code_res.okval
         if not Code.has_code(code):
-            return valerr(f"code {code} is not registered")
+            return valerr(f"code {code} is not regd")
 
         data = self._unpack_err(data, self._cfg.trace_errs_on_pub)
 

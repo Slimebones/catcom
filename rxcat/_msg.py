@@ -85,7 +85,7 @@ class Msg(BaseModel):
                 return err_dto_res
             data = err_dto_res.okval
 
-        codeid_res = await Code.get_registered_codeid(self.skip__datacode)
+        codeid_res = await Code.get_regd_codeid(self.skip__datacode)
         if isinstance(codeid_res, Err):
             return codeid_res
         final["datacodeid"] = codeid_res.okval
@@ -130,12 +130,12 @@ class Msg(BaseModel):
             return Err(ValErr(
                 f"invalid type of codeid {codeid}, expected int"))
 
-        code_res = await Code.get_registered_code_by_id(codeid)
+        code_res = await Code.get_regd_code_by_id(codeid)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
         if not Code.has_code(code):
-            return Err(ValErr(f"unregistered code {code}"))
+            return Err(ValErr(f"unregd code {code}"))
 
         return Ok(code)
 
@@ -150,7 +150,7 @@ class Msg(BaseModel):
 
         rmsg["skip__datacode"] = code
 
-        custom_type_res = await Code.get_registered_type(code)
+        custom_type_res = await Code.get_regd_type(code)
         if isinstance(custom_type_res, Err):
             return custom_type_res
         custom_type = custom_type_res.okval
@@ -172,7 +172,7 @@ class Msg(BaseModel):
     @classmethod
     async def deserialize_from_net(cls, rmsg: dict) -> Res[Self]:
         """Recovers model of this class using dictionary."""
-        # parse mdata separately according to it's registered type
+        # parse mdata separately according to it's regd type
         data_res = await cls._parse_rmsg_data(rmsg)
         if isinstance(data_res, Err):
             return data_res
@@ -207,7 +207,7 @@ class Welcome(BaseModel):
     def code() -> str:
         return "rxcat__welcome"
 
-class Register(BaseModel):
+class Reg(BaseModel):
     tokens: list[str]
     """
     Client's list of token to manage signed connection.
@@ -224,4 +224,4 @@ class Register(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat__register"
+        return "rxcat__reg"

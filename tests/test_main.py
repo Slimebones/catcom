@@ -21,6 +21,6 @@ async def test_pubsub(server_bus: ServerBus):
 
     assert flag
 
-async def test_register_req_has_index_0(server_bus: ServerBus):
+async def test_reg_req_has_index_0(server_bus: ServerBus):
     assert \
-        (await Code.get_registered_codes()).eject()[0] == "rxcat__register"
+        (await Code.get_regd_codes()).eject()[0] == "rxcat__reg"

@@ -7,7 +7,7 @@ Complete rebuild to data-oriented instead of msg-oriented. Some of features (but
 - renamed throw_err_evt() -> throw()
 - added ServerBusCfg.trace_errs_on_pub which allows to catch+reraise thrown to the bus errs
 - removed ServerBusCfg.is_invoked_action_unhandled_errs_logged in favor of ServerBusCfg.trace_errs_on_pub
-- ServerBusCfg: renamed register -> register_fn
+- ServerBusCfg: renamed reg -> reg_fn
 - setup ContextVar for subfn subscriber call
 - added support for custom subfn context functions
 - added ErrEvt.errtype which is set to fully qualified string representation of an error type
@@ -18,7 +18,7 @@ Complete rebuild to data-oriented instead of msg-oriented. Some of features (but
 - renamed InitdClientEvt to WelcomeEvt, changed the code to "rxcat__welcome_evt"
 - changed code "err-evt" to "rxcat__err_evt"
 - changed code "ok-evt" to "rxcat__ok_evt"
-- changed RegisterReq code to "rxcat__register_req"
+- changed RegReq code to "rxcat__reg_req"
 - renamed msg fields - all to snake case; introduce "skip__" prefix to not serialize field to the net
 - renamed Msg.serialize_json to Msg.serialize_for_net; renamed Msg.deserialize_json to Msg.deserialize_from_net
 - make officially public ErrEvt.skip__err which holds the original err object
@@ -36,7 +36,7 @@ Complete rebuild to data-oriented instead of msg-oriented. Some of features (but
 
 # 0.2.1
 
-- put RegisterReq to index 0
+- put RegReq to index 0
 
 # 0.2.0
 
