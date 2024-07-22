@@ -258,7 +258,7 @@ class ServerBus(Singleton):
     def get_ctx(self) -> dict:
         return _rxcat_ctx.get().copy()
 
-    async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
+    async def init(self, cfg: ServerBusCfg = ServerBusCfg(), *, types_to_reg):
         self._cfg = cfg
 
         self._init_transports()
@@ -662,6 +662,10 @@ class ServerBus(Singleton):
             if isinstance(code_res, Err):
                 return code_res
             code = code_res.okval
+
+        if not Code.has_code(code):
+            return valerr(f"code {code} is not registered")
+
         if code not in self._code_to_subfns:
             self._code_to_subfns[code] = []
         self._code_to_subfns[code].append(subfn)
@@ -774,6 +778,8 @@ class ServerBus(Singleton):
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
+        if not Code.has_code(code):
+            return valerr(f"code {code} is not registered")
 
         data = self._unpack_err(data, self._cfg.trace_errs_on_pub)
 

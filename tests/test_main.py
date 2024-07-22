@@ -16,8 +16,8 @@ async def test_pubsub(server_bus: ServerBus):
         nonlocal flag
         flag = True
 
-    await server_bus.sub(Mock_1, sub__mock_1)
-    await server_bus.pub(Mock_1(num=1))
+    (await server_bus.sub(Mock_1, sub__mock_1)).eject()
+    (await server_bus.pub(Mock_1(num=1))).eject()
 
     assert flag
 
