@@ -248,7 +248,7 @@ class ServerBus(Singleton):
         route="rx"
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
-        "rxcat__register_req",
+        "rxcat__register",
         "rxcat__welcome"
     ]
 
@@ -259,14 +259,6 @@ class ServerBus(Singleton):
         return _rxcat_ctx.get().copy()
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
-        (await self.register(
-            Register,
-            Welcome,
-            ok,
-            ErrDto,
-            SrpcSend,
-            SrpcRecv)).eject()
-
         self._cfg = cfg
 
         self._init_transports()
@@ -290,6 +282,14 @@ class ServerBus(Singleton):
         self._is_post_initd = False
 
         self._rpc_tasks: set[asyncio.Task] = set()
+
+        (await self.register(
+            Register,
+            Welcome,
+            ok,
+            ErrDto,
+            SrpcSend,
+            SrpcRecv)).eject()
 
     def _init_transports(self):
         self._conn_type_to_atransport: dict[type[Conn], ActiveTransport] = {}
@@ -326,7 +326,8 @@ class ServerBus(Singleton):
         codes_res = await Code.get_registered_codes()
         if isinstance(codes_res, Err):
             return codes_res
-        welcome = Welcome(codes=codes_res.okval)
+        codes = codes_res.okval
+        welcome = Welcome(codes=codes)
         self._preserialized_welcome_msg = (await Msg(
             skip__datacode=Welcome.code(),
             data=welcome).serialize_to_net()).eject()
@@ -336,9 +337,9 @@ class ServerBus(Singleton):
         return Ok(None)
 
     async def _rewelcome_all_conns(self) -> Res[None]:
-        return await self.pub(
+        return Ok(await self._pub_rmsg_to_net(
             self._preserialized_welcome_msg,
-            PubOpts(target_connsids=self._sid_to_conn.keys()))
+            self._sid_to_conn.keys()))
 
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn:
@@ -608,7 +609,7 @@ class ServerBus(Singleton):
             val=val)
         # we publish directly to the net since inner participants can't
         # subscribe to this
-        await self._pub_to_net(evt)
+        await self._pub_msg_to_net(evt)
 
     async def parse_rmsg(
             self, rmsg: dict, conn: Conn) -> Res[Msg]:
@@ -833,7 +834,7 @@ class ServerBus(Singleton):
         #   3. As a response
 
         if opts.send_to_net:
-            await self._pub_to_net(msg)
+            await self._pub_msg_to_net(msg)
 
         if opts.send_to_inner and code in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
@@ -850,33 +851,33 @@ class ServerBus(Singleton):
         for subfn in subfns:
             await self._call_subfn(subfn, msg)
 
-    async def _pub_to_net(self, msg: Msg):
+    async def _pub_msg_to_net(self, msg: Msg):
         if msg.skip__target_connsids:
             rmsg = (await msg.serialize_to_net()).unwrap_or(None)
             if rmsg is None:
                 return
-            for connsid in msg.skip__target_connsids:
-                if connsid not in self._sid_to_conn:
-                    log.err(
-                        f"no conn with id {connsid} for msg {msg}"
-                        " => skip"
-                    )
-                    continue
-                conn = self._sid_to_conn[connsid]
-                conn_type = type(conn)
-                # if we have conn in self._sid_to_conn, we must have transport
-                if conn_type not in self._conn_type_to_atransport:
-                    log.err("broken state of conn_type_to_atransport => skip")
-                    continue
-                atransport = self._conn_type_to_atransport[conn_type]
-                await atransport.out_queue.put((conn, rmsg))
+            await self._pub_rmsg_to_net(rmsg, msg.skip__target_connsids)
+
+    async def _pub_rmsg_to_net(self, rmsg: dict, connsids: Iterable[str]):
+        for connsid in connsids:
+            if connsid not in self._sid_to_conn:
+                log.err(
+                    f"no conn with id {connsid} for rmsg {rmsg}"
+                    " => skip")
+                continue
+            conn = self._sid_to_conn[connsid]
+            conn_type = type(conn)
+            # if we have conn in self._sid_to_conn, we must have transport
+            if conn_type not in self._conn_type_to_atransport:
+                log.err("broken state of conn_type_to_atransport => skip")
+                continue
+            atransport = self._conn_type_to_atransport[conn_type]
+            await atransport.out_queue.put((conn, rmsg))
 
     async def _send_as_linked(self, msg: Msg):
         if not msg.lsid:
             return
-
         subfn = self._lsid_to_subfn.get(msg.lsid, None)
-
         if subfn is not None:
             await self._call_subfn(subfn, msg)
 
