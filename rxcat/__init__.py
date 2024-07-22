@@ -322,7 +322,7 @@ class ServerBus(Singleton):
                 out_queue_processor=out_task)
             self._conn_type_to_atransport[transport.conn_type] = atransport
 
-    async def _set_welcome(self) -> Res[Welcome]:
+    async def _set_welcome(self) -> Res[None]:
         codes_res = await Code.get_registered_codes()
         if isinstance(codes_res, Err):
             return codes_res
@@ -333,7 +333,7 @@ class ServerBus(Singleton):
         rewelcome_res = await self._rewelcome_all_conns()
         if isinstance(rewelcome_res, Err):
             return rewelcome_res
-        return Ok(welcome)
+        return Ok(None)
 
     async def _rewelcome_all_conns(self) -> Res[None]:
         return await self.pub(
@@ -371,10 +371,10 @@ class ServerBus(Singleton):
 
         So it's better to be called once and at the start of the program.
         """
-        updr = await Code.upd(types, self.DEFAULT_CODE_ORDER)
-        if isinstance(updr, Err):
-            return updr
-        return await self._rewelcome_all_conns()
+        upd_res = await Code.upd(types, self.DEFAULT_CODE_ORDER)
+        if isinstance(upd_res, Err):
+            return upd_res
+        return await self._set_welcome()
 
     @classmethod
     def register_rpc(cls, fn: RpcFn) -> Res[None]:
