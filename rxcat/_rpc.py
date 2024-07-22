@@ -25,7 +25,8 @@ class SrpcSend(BaseModel):
     Any parseable kwargs passed to rpc fn.
     """
 
-    def code(self) -> str:
+    @staticmethod
+    def code() -> str:
         return "rxcat__srpc_send"
 
 class SrpcRecv(BaseModel):
@@ -36,7 +37,8 @@ class SrpcRecv(BaseModel):
     be serialized to ErrDto.
     """
 
-    def code(self) -> str:
+    @staticmethod
+    def code() -> str:
         return "rxcat__srpc_recv"
 
 class RpcFn(Protocol):

@@ -130,6 +130,7 @@ class Internal__BusUnhandledErr(Exception):
         )
 
 SubFnRetval = Mdata | Iterable[Mdata] | RetState | None
+@runtime_checkable
 class SubFn(Protocol, Generic[TMdata_contra]):
     async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
 
@@ -166,6 +167,9 @@ class PubOpts(BaseModel):
     Timeout of awaiting for published message response arrival. Defaults to
     None, which means no timeout is set.
     """
+
+    class Config:
+        arbitrary_types_allowed = True
 
 MdataCondition = Callable[[Mdata], Awaitable[bool]]
 MdataFilter = Callable[[Mdata], Awaitable[Mdata]]
@@ -618,8 +622,8 @@ class ServerBus(Singleton):
 
     async def sub(
         self,
-        datatype: type[Mdata] | str,
-        subfn: SubFn,
+        datatype: type[TMdata_contra] | str,
+        subfn: SubFn[TMdata_contra],
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable]:
         """

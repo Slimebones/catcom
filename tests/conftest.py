@@ -1,4 +1,5 @@
 from asyncio import Queue
+import asyncio
 from contextvars import ContextVar
 from typing import Self
 
@@ -45,7 +46,7 @@ async def server_bus() -> ServerBus:
                 conn_type=MockConn,
                 server__register_process="none")
         ])
-    await bus.init(cfg)
+    await asyncio.wait_for(bus.init(cfg), 1)
     return bus
 
 class MockConn(Conn[None]):

@@ -68,7 +68,7 @@ async def test_sub_custom_ctx_manager():
     server_bus = ServerBus.ie()
     await server_bus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
-    async def f(req: Mock_1):
+    async def f(data: Mock_1):
         assert rxcat_mock_ctx.get()["name"] == "hello"
 
     await server_bus.sub(Mock_1, f)
