@@ -850,7 +850,6 @@ class ServerBus(Singleton):
         if opts.send_to_net:
             await self._pub_msg_to_net(msg)
 
-        print(self._code_to_subfns)
         if opts.send_to_inner and code in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
 

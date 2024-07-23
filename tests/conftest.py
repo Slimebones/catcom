@@ -1,5 +1,5 @@
-from asyncio import Queue
 import asyncio
+from asyncio import Queue
 from contextvars import ContextVar
 from typing import Self
 

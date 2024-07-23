@@ -1,10 +1,7 @@
-from pykit.check import check
-from pykit.code import Code, get_fqname
-from pykit.err import ValErr
-from pykit.err_utils import ErrDto
+from pykit.code import Code
 
 from rxcat import ServerBus
-from tests.conftest import Mock_1, Mock_2
+from tests.conftest import Mock_1
 
 
 async def test_pubsub(server_bus: ServerBus):
