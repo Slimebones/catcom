@@ -582,11 +582,9 @@ class ServerBus(Singleton):
             try:
                 ctx_manager = (await self._cfg.rpc_ctxfn(data)).eject()
             except Exception as err:
-                log.err(
-                    f"err {get_fqname(err)} is occured"
-                    f" during rpx ctx manager retrieval for data {data}"
-                    " => skip; #stacktrace")
-                log.catch(err)
+                await log.atrack(
+                    err,
+                    f"rpx ctx manager retrieval for data {data} => skip")
                 return
         try:
             if ctx_manager:
@@ -595,11 +593,8 @@ class ServerBus(Singleton):
             else:
                 res = await fn(args_type.model_validate(data.args))
         except Exception as err:
-            log.warn(
-                f"unhandled exception occured for rpcfn on req {data}"
-                " => wrap it to usual RpcEvt;"
-                f" exception {get_fqname(err)}")
-            log.catch(err)
+            await log.atrack(
+                err, f"rpcfn on req {data} => wrap to usual RpcRecv")
             res = Err(err)
 
         val: Any
@@ -757,7 +752,7 @@ class ServerBus(Singleton):
             return Ok(val)
         return Err(NotFoundErr(f"\"{key}\" entry in rxcat ctx"))
 
-    def _unpack_err(self, data: Exception, trace: bool) -> Mdata:
+    def _unpack_err(self, data: Exception, track: bool) -> Mdata:
         if isinstance(data, Exception):
             if isinstance(data, UnwrapErr):
                 res = data.result
@@ -768,9 +763,8 @@ class ServerBus(Singleton):
                     data = ResourceServerErr(
                         f"got res with err value {res.errval},"
                         " which is not an instance of Exception")
-            if trace:
-                log.err(f"pub err {get_fqname(data)} #stacktrace")
-                log.catch(data)
+            if track:
+                log.track(data, "unpack err")
         return data
 
     def _unpack_lsid(self, lsid: str | None) -> Res[str | None]:
@@ -927,11 +921,8 @@ class ServerBus(Singleton):
             try:
                 ctx_manager = (await self._cfg.sub_ctxfn(msg)).eject()
             except Exception as err:
-                log.err(
-                    f"err {get_fqname(err)} is occured"
-                    f" during rpx ctx manager retrieval for data {msg.data}"
-                    " => skip; #stacktrace")
-                log.catch(err)
+                await log.atrack(
+                    err, f"rpx ctx manager retrieval for data {msg.data}")
                 return
             async with ctx_manager:
                 res = await subfn(msg.data)
