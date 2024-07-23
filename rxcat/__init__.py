@@ -296,6 +296,8 @@ class ServerBus(Singleton):
             ErrDto,
             SrpcSend,
             SrpcRecv,
+            ValErr,
+            NotFoundErr,
             *reg_types
         ])).eject()
 
@@ -468,10 +470,7 @@ class ServerBus(Singleton):
                 try:
                     await conn.close()
                 except Exception as err:
-                    log.err(
-                        f"err {get_fqname(err)} is raised"
-                        f" during conn {conn} closing, #stacktrace")
-                    log.catch(err)
+                    log.track(err, f"during conn {conn} closing")
             if conn.sid in self._sid_to_conn:
                 del self._sid_to_conn[conn.sid]
 
@@ -526,8 +525,9 @@ class ServerBus(Singleton):
                     await transport.on_recv(conn.sid, rmsg)
             msg_res = await self._parse_rmsg(rmsg, conn)
             if isinstance(msg_res, Err):
-                log.err(f"err during rmsg {rmsg} parsing #stacktrace")
-                log.catch(msg_res.errval)
+                # do not publish errs here, to reduce server load. Just record
+                # internally
+                await msg_res.atrack()
                 continue
             await self._accept_net_msg(msg_res.okval)
 
@@ -560,7 +560,12 @@ class ServerBus(Singleton):
             task.add_done_callback(self._rpc_tasks.discard)
             return
         # publish to inner bus with no duplicate net resending
-        await (await self.pub(msg, PubOpts(send_to_net=False))).atrack()
+        pub_res = await self.pub(msg, PubOpts(send_to_net=False))
+        if isinstance(pub_res, Err):
+            await (
+                await self.pub(
+                    ValErr(f"pub err for msg {msg}"),
+                    PubOpts(lsid=msg.lsid))).atrack()
 
     async def _call_rpc(self, msg: Msg):
         data = msg.data
@@ -781,13 +786,13 @@ class ServerBus(Singleton):
             return valerr(f"unrecognized PubOpts.lsid operator: {lsid}")
         return Ok(lsid)
 
-    def _make_msg(self, data: Mdata, opts: PubOpts) -> Res[Msg]:
+    def _make_msg(self, data: Mdata, opts: PubOpts = PubOpts()) -> Res[Msg]:
         code_res = Code.get_from_type(type(data))
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
         if not Code.has_code(code):
-            return valerr(f"code {code} is not regd")
+            return valerr(f"code {code} is not registered")
 
         data = self._unpack_err(data, self._cfg.trace_errs_on_pub)
 
