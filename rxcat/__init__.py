@@ -147,12 +147,12 @@ class PubOpts(BaseModel):
     Defaults to only ctx connsid, if it exists.
     """
 
-    lsid: str | Literal["$ctx.msid"] | None = None
+    lsid: str | Literal["$ctx::msid"] | None = None
     """
     Lsid to be used in the msg.
 
     Available operators:
-        - $ctx.msid - use "msid" field of the ctx as lsid
+        - $ctx::msid - use "msid" field of the ctx as lsid
     """
 
     send_to_inner: bool = True
@@ -236,6 +236,8 @@ class ServerBusCfg(BaseModel):
     rpc_ctxfn: Callable[[SrpcSend], Awaitable[Res[CtxManager]]] | None = None
 
     trace_errs_on_pub: bool = True
+    log_net_send: bool = True
+    log_net_recv: bool = True
 
     class Config:
         arbitrary_types_allowed = True
@@ -522,6 +524,8 @@ class ServerBus(Singleton):
             queue: Queue[tuple[Conn, dict]]):
         while True:
             conn, rmsg = await queue.get()
+            if self._cfg.log_net_recv:
+                log.info(f"NET::RECV | {conn.sid} | {rmsg}")
             if transport.on_recv:
                 with contextlib.suppress(Exception):
                     # we don't pass whole conn to avoid control leaks
@@ -540,6 +544,9 @@ class ServerBus(Singleton):
             queue: Queue[tuple[Conn, dict]]):
         while True:
             conn, rmsg = await queue.get()
+
+            if self._cfg.log_net_send:
+                log.info(f"NET::SEND | {conn.sid} | {rmsg}")
 
             if transport.on_send:
                 with contextlib.suppress(Exception):
@@ -771,7 +778,7 @@ class ServerBus(Singleton):
         return data
 
     def _unpack_lsid(self, lsid: str | None) -> Res[str | None]:
-        if lsid == "$ctx.msid":
+        if lsid == "$ctx::msid":
             # by default we publish as response to current message, so we
             # use the current's message sid as linked sid
             msid_res = self.get_ctx_key("msid")
@@ -964,7 +971,7 @@ class ServerBus(Singleton):
 
         # by default all subsriber's data are intended to be linked to
         # initial message, so we attach this message ctx msid
-        lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx.msid")
+        lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx::msid")
         pub_opts = PubOpts(lsid=lsid)
         for val in vals:
             if val is None:
