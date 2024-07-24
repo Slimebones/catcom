@@ -5,8 +5,7 @@ from typing import Self
 
 import pytest_asyncio
 from pydantic import BaseModel
-from pykit.err import ValErr
-from pykit.res import Err, Ok, Res, valerr
+from pykit.res import Ok, Res, valerr
 
 from rxcat import (
     Conn,

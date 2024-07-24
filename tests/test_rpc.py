@@ -1,7 +1,7 @@
 import asyncio
 
 from pydantic import BaseModel
-from pykit.code import Code, get_fqname
+from pykit.code import get_fqname
 from pykit.err import ValErr
 from pykit.res import Err, Ok, Res
 from pykit.uuid import uuid4

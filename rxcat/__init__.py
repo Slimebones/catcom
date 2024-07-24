@@ -5,10 +5,8 @@ Rxcat implementation for Python.
 import asyncio
 import contextlib
 import functools
-import inspect
 import typing
 from asyncio import Queue
-from pykit.res import Result
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from enum import Enum
@@ -18,19 +16,17 @@ from typing import (
     ClassVar,
     Generic,
     Iterable,
-    Literal,
     Protocol,
     runtime_checkable,
 )
 
 from pydantic import BaseModel
-from pykit.code import Code, Coded, get_fqname
+from pykit.code import Code, Coded
 from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
-from pykit.tb import create_traceback
 from pykit.log import log
 from pykit.ptr import Ptr
-from pykit.res import Err, Ok, Res, UnwrapErr, valerr
+from pykit.res import Err, Ok, Res, Result, UnwrapErr, valerr
 from pykit.singleton import Singleton
 from pykit.uuid import uuid4
 
@@ -148,7 +144,7 @@ class PubOpts(BaseModel):
     Defaults to only ctx connsid, if it exists.
     """
 
-    lsid: str | Literal["$ctx::msid"] | None = None
+    lsid: str | None = None
     """
     Lsid to be used in the msg.
 
@@ -390,7 +386,7 @@ class ServerBus(Singleton):
 
     @classmethod
     async def get_regd_type(cls, code: str) -> Res[type]:
-        return await Code.get_regd_type(code)
+        return await Code.get_regd_type_by_code(code)
 
     async def reg(self, types: Iterable[type | Coded[type]]) -> Res[None]:
         """
@@ -887,6 +883,10 @@ class ServerBus(Singleton):
 
         self._code_to_last_mdata[code] = data
 
+        await self._exec_pub_send_order(msg, opts)
+        return Ok(None)
+
+    async def _exec_pub_send_order(self, msg: Msg, opts: PubOpts):
         # SEND ORDER
         #
         #   1. Net
@@ -895,14 +895,10 @@ class ServerBus(Singleton):
 
         if opts.send_to_net:
             await self._pub_msg_to_net(msg)
-
-        if opts.send_to_inner and code in self._code_to_subfns:
+        if opts.send_to_inner and msg.skip__datacode in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
-
         if msg.lsid:
             await self._send_as_linked(msg)
-
-        return Ok(None)
 
     async def _send_to_inner_bus(self, msg: Msg):
         subfns = self._code_to_subfns[msg.skip__datacode]

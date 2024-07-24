@@ -150,7 +150,7 @@ class Msg(BaseModel):
 
         rmsg["skip__datacode"] = code
 
-        custom_type_res = await Code.get_regd_type(code)
+        custom_type_res = await Code.get_regd_type_by_code(code)
         if isinstance(custom_type_res, Err):
             return custom_type_res
         custom_type = custom_type_res.okval

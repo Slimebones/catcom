@@ -11,6 +11,9 @@ exclude = [
 ]
 
 ignore = [
+    "PLW2901",
+    "E731",
+
     # gives false-positive
     "PD011",
 
