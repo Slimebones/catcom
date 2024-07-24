@@ -1,12 +1,17 @@
 import asyncio
+
 from pykit.code import Code
 from pykit.err import ValErr
-from pykit.res import Ok
 from pykit.err_utils import get_err_msg
+from pykit.res import Ok
 from pykit.uuid import uuid4
 
-from rxcat import ServerBus, ConnArgs
-from tests.conftest import Mock_1, Mock_2, MockConn, find_codeid_in_welcome_rmsg
+from rxcat import ConnArgs, PubList, PubOpts, ServerBus
+from tests.conftest import (
+    Mock_1,
+    Mock_2,
+    MockConn,
+)
 
 
 async def test_pubsub(server_bus: ServerBus):
@@ -47,7 +52,8 @@ async def test_pubr(server_bus: ServerBus):
         return Ok(Mock_1(num=1))
 
     (await server_bus.sub(ValErr, sub__test)).eject()
-    response = (await server_bus.pubr(ValErr("hello"))).eject()
+    response = (await server_bus.pubr(
+        ValErr("hello"), PubOpts(pubr__timeout=1))).eject()
     assert type(response) is Mock_1
     assert response.num == 1
 
@@ -56,8 +62,7 @@ async def test_lsid_net(server_bus: ServerBus):
     Tests correctness of published back to net responses.
     """
     async def sub__test(data: Mock_1):
-        print(1)
-        return Ok([Mock_2(num=2), Mock_2(num=3)])
+        return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
     await server_bus.sub(Mock_1, sub__test)
     conn = MockConn(ConnArgs(
@@ -67,20 +72,23 @@ async def test_lsid_net(server_bus: ServerBus):
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": Mock_1.code(),
+        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
         "data": {
             "num": 1
         }
     })
+    await asyncio.sleep(0.1)
     count = 0
     while not conn.out_queue.empty():
         response = await asyncio.wait_for(conn.client__recv(), 1)
-        assert type(response) is Mock_2
+        response_data = response["data"]
         count += 1
         if count == 1:
-            assert response.num == 2
+            assert response_data["num"] == 2
         elif count == 2:
-            assert response.num == 3
+            assert response_data["num"] == 3
         else:
             raise AssertionError
     assert count == 2
+
+    conn_task.cancel()

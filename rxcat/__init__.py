@@ -85,6 +85,14 @@ def srpc():
         return target
     return inner
 
+class PubList(list[Mdata]):
+    """
+    List of mdata to be published.
+
+    Useful as retval from subfn to signify that this list should be unpacked
+    and each item be published.
+    """
+
 class RetState(Enum):
     SkipMe = 0
     """
@@ -561,8 +569,6 @@ class ServerBus(Singleton):
                     await transport.on_recv(conn.sid, rmsg)
             msg_res = await self._parse_rmsg(rmsg, conn)
             if isinstance(msg_res, Err):
-                # do not publish errs here, to reduce server load. Just record
-                # internally
                 await msg_res.atrack()
                 continue
             await self._accept_net_msg(msg_res.okval)
@@ -987,24 +993,13 @@ class ServerBus(Singleton):
                     err, f"rpx ctx manager retrieval for data {msg.data}")
                 return
             async with ctx_manager:
-                res = await subfn(msg.data)
+                retval = await subfn(msg.data)
         else:
-            res = await subfn(msg.data)
+            retval = await subfn(msg.data)
 
-        vals = []
-        if isinstance(res, RetState):
-            if res is RetState.SkipMe:
-                return
-            log.err(f"unsupported ret state: {res}")
+        vals = self._parse_subfn_retval(retval)
+        if not vals:
             return
-        else:
-            try:
-                # safer way to check, instead of isinstance(res, Iterable)
-                res.iter()  # type: ignore
-            except (TypeError, AttributeError):
-                vals = [res]
-            else:
-                vals = typing.cast(Iterable[Mdata], res)
 
         # by default all subsriber's data are intended to be linked to
         # initial message, so we attach this message ctx msid
@@ -1014,7 +1009,31 @@ class ServerBus(Singleton):
             if val is None:
                 val = ok()
             await (await self.pub(val, pub_opts)).atrack(
-                "during subfn retval publication")
+                f"during subfn {subfn} retval publication")
+
+    def _parse_subfn_retval(
+            self, retval: SubFnRetval) -> Iterable[Mdata]:
+        # unpack here, though it can be done inside pub(), but we want to
+        # process iterables here
+        if isinstance(retval, Ok):
+            retval = retval.okval
+        if isinstance(retval, Err):
+            retval = retval.errval
+
+        vals = []
+        if isinstance(retval, RetState):
+            if retval is RetState.SkipMe:
+                return []
+            else:
+                log.err(f"unsupported ret state: {retval}")
+                return []
+
+        if isinstance(retval, PubList):
+            vals = retval
+        else:
+            vals = [retval]
+
+        return vals
 
     def set_ctx_subfn_lsid(self, lsid: str | None):
         """
