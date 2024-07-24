@@ -39,7 +39,8 @@ async def test_subfn(server_bus: ServerBus):
         }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
-    assert rmsg["datacodeid"] == Code.get_regd_codeid_by_type(ok)
+    assert \
+        rmsg["datacodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
     conn_task.cancel()
 
 async def test_rpc(server_bus: ServerBus):

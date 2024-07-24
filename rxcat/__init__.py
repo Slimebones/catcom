@@ -17,6 +17,7 @@ from typing import (
     ClassVar,
     Generic,
     Iterable,
+    Literal,
     Protocol,
     runtime_checkable,
 )
@@ -146,7 +147,7 @@ class PubOpts(BaseModel):
     Defaults to only ctx connsid, if it exists.
     """
 
-    lsid: str | None = None
+    lsid: str | Literal["$ctx.msid"] | None = None
     """
     Lsid to be used in the msg.
 
@@ -838,6 +839,7 @@ class ServerBus(Singleton):
         if isinstance(data, Msg):
             msg = data
             data = msg.data
+            code = msg.skip__datacode
         else:
             msg_res = self._make_msg(data, opts)
             if isinstance(msg_res, Err):
@@ -962,12 +964,13 @@ class ServerBus(Singleton):
 
         # by default all subsriber's data are intended to be linked to
         # initial message, so we attach this message ctx msid
-        lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx::msid")
+        lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx.msid")
         pub_opts = PubOpts(lsid=lsid)
         for val in vals:
-            (await self.pub(val, pub_opts)).inspect_err(
-                lambda reserr: log.warn(
-                    f"err {reserr} during subfn {subfn} pub"))
+            if val is None:
+                val = ok()
+            await (await self.pub(val, pub_opts)).atrack(
+                "during subfn retval publication")
 
     def set_ctx_subfn_lsid(self, lsid: str | None):
         """
