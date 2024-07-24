@@ -73,10 +73,10 @@ async def test_sub_custom_ctx_manager():
     server_bus = ServerBus.ie()
     await server_bus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
-    async def f(data: Mock_1):
+    async def sub__f(data: Mock_1):
         assert rxcat_mock_ctx.get()["name"] == "hello"
 
-    await server_bus.sub(Mock_1, f)
+    await server_bus.sub(Mock_1, sub__f)
     await server_bus.pubr(Mock_1(num=1))
 
 async def test_rpc_custom_ctx_manager():
@@ -86,7 +86,7 @@ async def test_rpc_custom_ctx_manager():
             Transport(
                 is_server=True,
                 conn_type=MockConn,
-                server__reg_process="none")
+                is_registration_enabled=False)
         ],
         sub_ctxfn=get_mock_ctx_manager_for_msg))
 

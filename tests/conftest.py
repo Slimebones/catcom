@@ -43,7 +43,24 @@ async def server_bus() -> ServerBus:
             Transport(
                 is_server=True,
                 conn_type=MockConn,
-                server__reg_process="none")
+                is_registration_enabled=False)
+        ],
+        reg_types=[
+            Mock_1,
+            Mock_2
+        ])
+    await asyncio.wait_for(bus.init(cfg), 1)
+    return bus
+
+@pytest_asyncio.fixture
+async def reg_server_bus() -> ServerBus:
+    bus = ServerBus.ie()
+    cfg = ServerBusCfg(
+        transports=[
+            Transport(
+                is_server=True,
+                conn_type=MockConn,
+                is_registration_enabled=True)
         ],
         reg_types=[
             Mock_1,

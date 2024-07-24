@@ -90,16 +90,7 @@ class Transport(BaseModel):
     port: int = 0
     route: str = ""
 
-    server__reg_process: Literal["none", "reg_req"] = "none"
-    """
-    Defines how client connections must reg in the server.
-
-    Values:
-        - none: No registration is required.
-        - reg_req: The client must send RegReq as a first msg upon
-                        connecting to the bus. On any other msg the client
-                        will be disconnected.
-    """
+    is_registration_enabled: bool = False
 
     max_inp_queue_size: int = 10000
     """

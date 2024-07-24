@@ -446,7 +446,7 @@ class ServerBus(Singleton):
         self._sid_to_conn[conn.sid] = conn
 
         try:
-            if atransport.transport.server__reg_process == "reg_req":
+            if atransport.transport.is_registration_enabled:
                 reg_data = (
                     await self._read_first_msg(conn, atransport)).eject()
                 if reg_data:
