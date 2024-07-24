@@ -83,7 +83,7 @@ class Msg(BaseModel):
             err_dto_res = await create_err_dto(data)
             if isinstance(err_dto_res, Err):
                 return err_dto_res
-            data = err_dto_res.okval.model_dump(exclude_none=True)
+            data = err_dto_res.okval.model_dump(exclude={"stacktrace"})
 
         codeid_res = await Code.get_regd_codeid(self.skip__datacode)
         if isinstance(codeid_res, Err):

@@ -631,7 +631,7 @@ class ServerBus(Singleton):
             val = res.okval
         elif isinstance(res, Err):
             val = (await create_err_dto(res.errval)).eject()
-            val = val.model_dump(exclude_none=True)
+            val = typing.cast(ErrDto, val).model_dump(exclude={"stacktrace"})
         else:
             log.err(
                 f"rpcfn on req {data} returned non-res val {res} => skip")
