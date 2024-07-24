@@ -65,8 +65,7 @@ async def test_lsid_net(server_bus: ServerBus):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
     await server_bus.sub(Mock_1, sub__test)
-    conn = MockConn(ConnArgs(
-        core=None))
+    conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(server_bus.conn(conn))
 
     await asyncio.wait_for(conn.client__recv(), 1)
@@ -92,3 +91,35 @@ async def test_lsid_net(server_bus: ServerBus):
     assert count == 2
 
     conn_task.cancel()
+
+async def test_reg(reg_server_bus: ServerBus):
+    !!
+    server_bus = reg_server_bus
+
+    conn = MockConn(ConnArgs(core=None))
+    conn_task = asyncio.create_task(server_bus.conn(conn))
+
+    await asyncio.wait_for(conn.client__recv(), 1)
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "data": {
+            "num": 1
+        }
+    })
+    await asyncio.sleep(0.1)
+    count = 0
+    while not conn.out_queue.empty():
+        response = await asyncio.wait_for(conn.client__recv(), 1)
+        response_data = response["data"]
+        count += 1
+        if count == 1:
+            assert response_data["num"] == 2
+        elif count == 2:
+            assert response_data["num"] == 3
+        else:
+            raise AssertionError
+    assert count == 2
+
+    conn_task.cancel()
+

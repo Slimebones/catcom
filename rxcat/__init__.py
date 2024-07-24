@@ -306,7 +306,7 @@ class ServerBus(Singleton):
         self._rpc_tasks: set[asyncio.Task] = set()
 
         reg_types = [] if cfg.reg_types is None else cfg.reg_types
-        (await self.reg([
+        (await self.reg_types([
             Reg,
             Welcome,
             ok,
@@ -353,7 +353,8 @@ class ServerBus(Singleton):
     async def get_regd_type(cls, code: str) -> Res[type]:
         return await Code.get_regd_type_by_code(code)
 
-    async def reg(self, types: Iterable[type | Coded[type]]) -> Res[None]:
+    async def reg_types(
+            self, types: Iterable[type | Coded[type]]) -> Res[None]:
         """
         Reg codes for types.
 
