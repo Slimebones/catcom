@@ -1107,7 +1107,7 @@ typing-extensions = ">=4.6.0,<4.7.0 || >4.7.0"
 
 [[package]]
 name = "pykit"
-version = "0.11.0"
+version = "0.12.0"
 description = "Python toolkit."
 optional = false
 python-versions = "^3.11"
@@ -1126,8 +1126,8 @@ pyyaml = "^6.0.1"
 [package.source]
 type = "git"
 url = "https://github.com/slimebones/pykit.git"
-reference = "0.11.0"
-resolved_reference = "e9a41c5638b124c17fb003a4489e2c0e23565ebb"
+reference = "0.12.0"
+resolved_reference = "e39cf3e6582a8b316826bb0d16f792faaea0c8db"
 
 [[package]]
 name = "pymongo"
@@ -1467,4 +1467,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "18bd025ebf53c60025c3d5300f4661cc81ea4858177cd223355ab156e4219c66"
+content-hash = "6036959c72bb2bf9b5d6368151fe972aefab29cdc913d8a926ce8b956e81fdb4"

@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from pykit.code import Code, get_fqname
 from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
+from pykit.tb import create_traceback
 from pykit.log import log
 from pykit.ptr import Ptr
 from pykit.res import Err, Ok, Res, UnwrapErr, valerr
@@ -565,7 +566,7 @@ class ServerBus(Singleton):
         if isinstance(pub_res, Err):
             await (
                 await self.pub(
-                    ValErr(f"pub err for msg {msg}"),
+                    pub_res,
                     PubOpts(lsid=msg.lsid))).atrack()
 
     async def _call_rpc(self, msg: Msg):
@@ -782,7 +783,7 @@ class ServerBus(Singleton):
         return Ok(lsid)
 
     def _make_msg(
-            self, data: Mdata | Result, opts: PubOpts = PubOpts()) -> Res[Msg]:
+            self, data: Mdata, opts: PubOpts = PubOpts()) -> Res[Msg]:
         code_res = Code.get_from_type(type(data))
         if isinstance(code_res, Err):
             return code_res
@@ -815,7 +816,7 @@ class ServerBus(Singleton):
 
     async def pub(
             self,
-            data: Mdata,
+            data: Mdata | Result | Msg,
             opts: PubOpts = PubOpts()) -> Res[None]:
         """
         Publishes data to the bus.
@@ -825,18 +826,24 @@ class ServerBus(Singleton):
         Received Exceptions are additionally logged if
         cfg.trace_errs_on_pub == True.
 
-        Passed Result will be fetched for value.
+        Passed Result will be fetched for the value.
+
+        Passing rxcat::Msg is restricted to internal usage.
         """
         if isinstance(data, Ok):
             data = data.okval
         elif isinstance(data, Err):
             data = data.errval
 
-        msg_res = self._make_msg(data, opts)
-        if isinstance(msg_res, Err):
-            return msg_res
-        msg = msg_res.okval
-        code = msg.skip__datacode
+        if isinstance(data, Msg):
+            msg = data
+            data = msg.data
+        else:
+            msg_res = self._make_msg(data, opts)
+            if isinstance(msg_res, Err):
+                return msg_res
+            msg = msg_res.okval
+            code = msg.skip__datacode
 
         r = self._check_norpc_mdata(msg, "publication")
         if isinstance(r, Err):
