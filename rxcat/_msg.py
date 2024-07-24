@@ -1,11 +1,11 @@
-from typing import Any, Self, TypeVar
+from typing import Any, Callable, Self, TypeVar
 
 from pydantic import BaseModel
 from pykit.code import Code
 from pykit.err import ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
-from pykit.res import Err, Ok, Res
+from pykit.res import Err, Ok, Res, resultify
 from pykit.uuid import uuid4
 
 TMdata_contra = TypeVar("TMdata_contra", contravariant=True)
@@ -156,6 +156,7 @@ class Msg(BaseModel):
         custom_type = custom_type_res.okval
 
         deserialize_custom = getattr(custom_type, "deserialize", None)
+        final_deserialize_fn: Callable[[], Any]
         if issubclass(custom_type, BaseModel):
             # for case of rmsg with empty data field, we'll try to initialize
             # the type without any fields (empty dict)
@@ -165,13 +166,14 @@ class Msg(BaseModel):
                 return Err(ValErr(
                     f"if custom type ({custom_type}) is a BaseModel, data"
                     f" {data} must be a dict, got type {type(data)}"))
-            data = custom_type(**data)
+            final_deserialize_fn = lambda: custom_type(**data)
         elif deserialize_custom is not None:
-            data = deserialize_custom(data)
+            final_deserialize_fn = lambda: deserialize_custom(data)
         else:
-            data = custom_type(data)
+            # for arbitrary types: just pass data as init first arg
+            final_deserialize_fn = lambda: custom_type(data)
 
-        return Ok(data)
+        return resultify(final_deserialize_fn)
 
     @classmethod
     async def deserialize_from_net(cls, rmsg: dict) -> Res[Self]:

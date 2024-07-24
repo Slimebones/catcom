@@ -585,7 +585,7 @@ class ServerBus(Singleton):
             return
         fn, args_type = self._rpccode_to_fn[code]
 
-        _rxcat_ctx.set(self._get_ctx_dict_for_msg(data))
+        _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
 
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:
@@ -623,8 +623,10 @@ class ServerBus(Singleton):
         evt = Msg(
             lsid=msg.sid,
             skip__target_connsids=[msg.skip__connsid],
-            key=data.key,
-            val=val)
+            skip__datacode=SrpcRecv.code(),
+            data=SrpcRecv(
+                key=data.key,
+                val=val))
         # we publish directly to the net since inner participants can't
         # subscribe to this
         await self._pub_msg_to_net(evt)

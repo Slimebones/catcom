@@ -58,8 +58,10 @@ async def test_rpc(server_bus: ServerBus):
     await conn.client__send({
         "sid": uuid4(),
         "datacodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
-        "key": rpc_key,
-        "args": {"username": "test_username", "email": "test_email"}
+        "data": {
+            "key": rpc_key,
+            "args": {"username": "test_username", "email": "test_email"}
+        }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
     assert rmsg["datacodeid"] == \
@@ -102,8 +104,10 @@ async def test_rpc_custom_ctx_manager():
     await conn.client__send({
         "sid": uuid4(),
         "datacodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
-        "key": rpc_key,
-        "args": {}
+        "data": {
+            "key": rpc_key,
+            "args": {}
+        }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
     assert rmsg["datacodeid"] == \
