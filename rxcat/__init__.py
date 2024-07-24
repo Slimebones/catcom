@@ -514,169 +514,6 @@ class ServerBus(Singleton):
             if conn.sid in self._sid_to_conn:
                 del self._sid_to_conn[conn.sid]
 
-    async def _receive_from_conn(
-            self,
-            conn: Conn,
-            atransport: ActiveTransport) -> dict:
-        try:
-            return await asyncio.wait_for(
-                conn.recv(),
-                atransport.transport.inactivity_timeout)
-        except TimeoutError as err:
-            raise TimeoutError(
-                f"inactivity of conn {conn} for transport {atransport}"
-            ) from err
-
-    async def _read_first_msg(
-            self,
-            conn: Conn,
-            atransport: ActiveTransport) -> Res[ServerRegData | None]:
-        rmsg = await self._receive_from_conn(conn, atransport)
-
-        msg_res = await self._parse_rmsg(rmsg, conn)
-        if isinstance(msg_res, Err):
-            return msg_res
-        msg = msg_res.okval
-
-        if not isinstance(msg, Reg):
-            return valerr(f"first msg should be RegReq, got {msg}")
-
-        reg_res = Ok(None)
-        if self._cfg.reg_fn is not None:
-            reg_res = await self._cfg.reg_fn(
-                msg.tokens, msg.data)
-            if isinstance(reg_res, Err):
-                return reg_res
-
-        return reg_res
-
-    async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
-        async for rmsg in conn:
-            log.info(f"receive: {rmsg}", 2)
-            atransport.inp_queue.put_nowait((conn, rmsg))
-
-    async def _process_inp_queue(
-            self,
-            transport: Transport,
-            queue: Queue[tuple[Conn, dict]]):
-        while True:
-            conn, rmsg = await queue.get()
-            if self._cfg.log_net_recv:
-                log.info(f"NET::RECV | {conn.sid} | {rmsg}")
-            if transport.on_recv:
-                with contextlib.suppress(Exception):
-                    # we don't pass whole conn to avoid control leaks
-                    await transport.on_recv(conn.sid, rmsg)
-            msg_res = await self._parse_rmsg(rmsg, conn)
-            if isinstance(msg_res, Err):
-                await msg_res.atrack()
-                continue
-            await self._accept_net_msg(msg_res.okval)
-
-    async def _process_out_queue(
-            self,
-            transport: Transport,
-            queue: Queue[tuple[Conn, dict]]):
-        while True:
-            conn, rmsg = await queue.get()
-
-            if self._cfg.log_net_send:
-                log.info(f"NET::SEND | {conn.sid} | {rmsg}")
-
-            if transport.on_send:
-                with contextlib.suppress(Exception):
-                    await transport.on_send(conn.sid, rmsg)
-
-            log.info(f"send to connsid {conn.sid}: {rmsg}", 2)
-
-            await conn.send(rmsg)
-
-    async def _accept_net_msg(self, msg: Msg):
-        if isinstance(msg.data, SrpcRecv):
-            log.err(
-                f"server bus won't accept RpcRecv messages, got {msg}"
-                " => skip")
-            return
-        elif isinstance(msg.data, SrpcSend):
-            # process rpc in a separate task to not block inp queue
-            # processing
-            task = asyncio.create_task(self._call_rpc(msg))
-            self._rpc_tasks.add(task)
-            task.add_done_callback(self._rpc_tasks.discard)
-            return
-        # publish to inner bus with no duplicate net resending
-        pub_res = await self.pub(msg, PubOpts(send_to_net=False))
-        if isinstance(pub_res, Err):
-            await (
-                await self.pub(
-                    pub_res,
-                    PubOpts(lsid=msg.lsid))).atrack()
-
-    async def _call_rpc(self, msg: Msg):
-        data = msg.data
-        code, _ = data.key.split(":")
-        if code not in self._rpccode_to_fn:
-            log.err(f"no such rpc code {code} for req {data} => skip")
-            return
-        fn, args_type = self._rpccode_to_fn[code]
-
-        _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
-
-        ctx_manager: CtxManager | None = None
-        if self._cfg.rpc_ctxfn is not None:
-            try:
-                ctx_manager = (await self._cfg.rpc_ctxfn(data)).eject()
-            except Exception as err:
-                await log.atrack(
-                    err,
-                    f"rpx ctx manager retrieval for data {data} => skip")
-                return
-        try:
-            if ctx_manager:
-                async with ctx_manager:
-                    res = await fn(args_type.model_validate(data.args))
-            else:
-                res = await fn(args_type.model_validate(data.args))
-        except Exception as err:
-            await log.atrack(
-                err, f"rpcfn on req {data} => wrap to usual RpcRecv")
-            res = Err(err)
-
-        val: Any
-        if isinstance(res, Ok):
-            val = res.okval
-        elif isinstance(res, Err):
-            val = (await create_err_dto(res.errval)).eject()
-            val = typing.cast(ErrDto, val).model_dump(exclude={"stacktrace"})
-        else:
-            log.err(
-                f"rpcfn on req {data} returned non-res val {res} => skip")
-            return
-
-        # val must be any serializable by pydantic object, so here we pass it
-        # directly to Msg, which will do serialization automatically under the
-        # hood
-        evt = Msg(
-            lsid=msg.sid,
-            skip__target_connsids=[msg.skip__connsid],
-            skip__datacode=SrpcRecv.code(),
-            data=SrpcRecv(
-                key=data.key,
-                val=val))
-        # we publish directly to the net since inner participants can't
-        # subscribe to this
-        await self._pub_msg_to_net(evt)
-
-    async def _parse_rmsg(
-            self, rmsg: dict, conn: Conn) -> Res[Msg]:
-        msid: str | None = rmsg.get("sid", None)
-        if not msid:
-            return valerr("msg without sid")
-        # msgs coming from net receive connection sid
-        rmsg["skip__connsid"] = conn.sid
-        msg_res = await Msg.deserialize_from_net(rmsg)
-        return msg_res
-
     async def sub(
         self,
         datatype: type[TMdata_contra] | str,
@@ -805,6 +642,52 @@ class ServerBus(Singleton):
             return Ok(val)
         return Err(NotFoundErr(f"\"{key}\" entry in rxcat ctx"))
 
+    async def pub(
+            self,
+            data: Mdata | Result | Msg,
+            opts: PubOpts = PubOpts()) -> Res[None]:
+        """
+        Publishes data to the bus.
+
+        For received UnwrapErr, it's res.errval will be used.
+
+        Received Exceptions are additionally logged if
+        cfg.trace_errs_on_pub == True.
+
+        Passed Result will be fetched for the value.
+
+        Passing rxcat::Msg is restricted to internal usage.
+        """
+        if isinstance(data, Ok):
+            data = data.okval
+        elif isinstance(data, Err):
+            data = data.errval
+
+        if isinstance(data, Msg):
+            msg = data
+            data = msg.data
+            code = msg.skip__datacode
+        else:
+            msg_res = self._make_msg(data, opts)
+            if isinstance(msg_res, Err):
+                return msg_res
+            msg = msg_res.okval
+            code = msg.skip__datacode
+
+        r = self._check_norpc_mdata(msg, "publication")
+        if isinstance(r, Err):
+            return r
+
+        if opts.subfn is not None:
+            if msg.sid in self._lsid_to_subfn:
+                return Err(AlreadyProcessedErr(f"{msg} for pubr"))
+            self._lsid_to_subfn[msg.sid] = opts.subfn
+
+        self._code_to_last_mdata[code] = data
+
+        await self._exec_pub_send_order(msg, opts)
+        return Ok(None)
+
     def _unpack_err(self, data: Exception, track: bool) -> Mdata:
         if isinstance(data, Exception):
             if isinstance(data, UnwrapErr):
@@ -864,52 +747,6 @@ class ServerBus(Singleton):
             skip__datacode=code,
             data=data,
             skip__target_connsids=target_connsids))
-
-    async def pub(
-            self,
-            data: Mdata | Result | Msg,
-            opts: PubOpts = PubOpts()) -> Res[None]:
-        """
-        Publishes data to the bus.
-
-        For received UnwrapErr, it's res.errval will be used.
-
-        Received Exceptions are additionally logged if
-        cfg.trace_errs_on_pub == True.
-
-        Passed Result will be fetched for the value.
-
-        Passing rxcat::Msg is restricted to internal usage.
-        """
-        if isinstance(data, Ok):
-            data = data.okval
-        elif isinstance(data, Err):
-            data = data.errval
-
-        if isinstance(data, Msg):
-            msg = data
-            data = msg.data
-            code = msg.skip__datacode
-        else:
-            msg_res = self._make_msg(data, opts)
-            if isinstance(msg_res, Err):
-                return msg_res
-            msg = msg_res.okval
-            code = msg.skip__datacode
-
-        r = self._check_norpc_mdata(msg, "publication")
-        if isinstance(r, Err):
-            return r
-
-        if opts.subfn is not None:
-            if msg.sid in self._lsid_to_subfn:
-                return Err(AlreadyProcessedErr(f"{msg} for pubr"))
-            self._lsid_to_subfn[msg.sid] = opts.subfn
-
-        self._code_to_last_mdata[code] = data
-
-        await self._exec_pub_send_order(msg, opts)
-        return Ok(None)
 
     async def _exec_pub_send_order(self, msg: Msg, opts: PubOpts):
         # SEND ORDER
@@ -1084,3 +921,166 @@ class ServerBus(Singleton):
 
             return retdata
         return wrapper
+
+    async def _receive_from_conn(
+            self,
+            conn: Conn,
+            atransport: ActiveTransport) -> dict:
+        try:
+            return await asyncio.wait_for(
+                conn.recv(),
+                atransport.transport.inactivity_timeout)
+        except TimeoutError as err:
+            raise TimeoutError(
+                f"inactivity of conn {conn} for transport {atransport}"
+            ) from err
+
+    async def _read_first_msg(
+            self,
+            conn: Conn,
+            atransport: ActiveTransport) -> Res[ServerRegData | None]:
+        rmsg = await self._receive_from_conn(conn, atransport)
+
+        msg_res = await self._parse_rmsg(rmsg, conn)
+        if isinstance(msg_res, Err):
+            return msg_res
+        msg = msg_res.okval
+
+        if not isinstance(msg, Reg):
+            return valerr(f"first msg should be RegReq, got {msg}")
+
+        reg_res = Ok(None)
+        if self._cfg.reg_fn is not None:
+            reg_res = await self._cfg.reg_fn(
+                msg.tokens, msg.data)
+            if isinstance(reg_res, Err):
+                return reg_res
+
+        return reg_res
+
+    async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
+        async for rmsg in conn:
+            log.info(f"receive: {rmsg}", 2)
+            atransport.inp_queue.put_nowait((conn, rmsg))
+
+    async def _process_inp_queue(
+            self,
+            transport: Transport,
+            queue: Queue[tuple[Conn, dict]]):
+        while True:
+            conn, rmsg = await queue.get()
+            if self._cfg.log_net_recv:
+                log.info(f"NET::RECV | {conn.sid} | {rmsg}")
+            if transport.on_recv:
+                with contextlib.suppress(Exception):
+                    # we don't pass whole conn to avoid control leaks
+                    await transport.on_recv(conn.sid, rmsg)
+            msg_res = await self._parse_rmsg(rmsg, conn)
+            if isinstance(msg_res, Err):
+                await msg_res.atrack()
+                continue
+            await self._accept_net_msg(msg_res.okval)
+
+    async def _process_out_queue(
+            self,
+            transport: Transport,
+            queue: Queue[tuple[Conn, dict]]):
+        while True:
+            conn, rmsg = await queue.get()
+
+            if self._cfg.log_net_send:
+                log.info(f"NET::SEND | {conn.sid} | {rmsg}")
+
+            if transport.on_send:
+                with contextlib.suppress(Exception):
+                    await transport.on_send(conn.sid, rmsg)
+
+            log.info(f"send to connsid {conn.sid}: {rmsg}", 2)
+
+            await conn.send(rmsg)
+
+    async def _accept_net_msg(self, msg: Msg):
+        if isinstance(msg.data, SrpcRecv):
+            log.err(
+                f"server bus won't accept RpcRecv messages, got {msg}"
+                " => skip")
+            return
+        elif isinstance(msg.data, SrpcSend):
+            # process rpc in a separate task to not block inp queue
+            # processing
+            task = asyncio.create_task(self._call_rpc(msg))
+            self._rpc_tasks.add(task)
+            task.add_done_callback(self._rpc_tasks.discard)
+            return
+        # publish to inner bus with no duplicate net resending
+        pub_res = await self.pub(msg, PubOpts(send_to_net=False))
+        if isinstance(pub_res, Err):
+            await (
+                await self.pub(
+                    pub_res,
+                    PubOpts(lsid=msg.lsid))).atrack()
+
+    async def _call_rpc(self, msg: Msg):
+        data = msg.data
+        code, _ = data.key.split(":")
+        if code not in self._rpccode_to_fn:
+            log.err(f"no such rpc code {code} for req {data} => skip")
+            return
+        fn, args_type = self._rpccode_to_fn[code]
+
+        _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
+
+        ctx_manager: CtxManager | None = None
+        if self._cfg.rpc_ctxfn is not None:
+            try:
+                ctx_manager = (await self._cfg.rpc_ctxfn(data)).eject()
+            except Exception as err:
+                await log.atrack(
+                    err,
+                    f"rpx ctx manager retrieval for data {data} => skip")
+                return
+        try:
+            if ctx_manager:
+                async with ctx_manager:
+                    res = await fn(args_type.model_validate(data.args))
+            else:
+                res = await fn(args_type.model_validate(data.args))
+        except Exception as err:
+            await log.atrack(
+                err, f"rpcfn on req {data} => wrap to usual RpcRecv")
+            res = Err(err)
+
+        val: Any
+        if isinstance(res, Ok):
+            val = res.okval
+        elif isinstance(res, Err):
+            val = (await create_err_dto(res.errval)).eject()
+            val = typing.cast(ErrDto, val).model_dump(exclude={"stacktrace"})
+        else:
+            log.err(
+                f"rpcfn on req {data} returned non-res val {res} => skip")
+            return
+
+        # val must be any serializable by pydantic object, so here we pass it
+        # directly to Msg, which will do serialization automatically under the
+        # hood
+        evt = Msg(
+            lsid=msg.sid,
+            skip__target_connsids=[msg.skip__connsid],
+            skip__datacode=SrpcRecv.code(),
+            data=SrpcRecv(
+                key=data.key,
+                val=val))
+        # we publish directly to the net since inner participants can't
+        # subscribe to this
+        await self._pub_msg_to_net(evt)
+
+    async def _parse_rmsg(
+            self, rmsg: dict, conn: Conn) -> Res[Msg]:
+        msid: str | None = rmsg.get("sid", None)
+        if not msid:
+            return valerr("msg without sid")
+        # msgs coming from net receive connection sid
+        rmsg["skip__connsid"] = conn.sid
+        msg_res = await Msg.deserialize_from_net(rmsg)
+        return msg_res
