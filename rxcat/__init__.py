@@ -5,6 +5,7 @@ Rxcat implementation for Python.
 import asyncio
 import contextlib
 import functools
+import inspect
 import typing
 from asyncio import Queue
 from pykit.res import Result
@@ -23,7 +24,7 @@ from typing import (
 )
 
 from pydantic import BaseModel
-from pykit.code import Code, get_fqname
+from pykit.code import Code, Coded, get_fqname
 from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
 from pykit.tb import create_traceback
@@ -303,6 +304,24 @@ class ServerBus(Singleton):
             SrpcRecv,
             ValErr,
             NotFoundErr,
+            Coded(
+                code="exception",
+                val=Exception),
+            Coded(
+                code="value_error",
+                val=ValueError),
+            Coded(
+                code="type_error",
+                val=TypeError),
+            Coded(
+                code="system_error",
+                val=SystemError),
+            Coded(
+                code="key_error",
+                val=KeyError),
+            Coded(
+                code="attribute_error",
+                val=AttributeError),
             *reg_types
         ])).eject()
 
@@ -373,7 +392,7 @@ class ServerBus(Singleton):
     async def get_regd_type(cls, code: str) -> Res[type]:
         return await Code.get_regd_type(code)
 
-    async def reg(self, types: Iterable[type]) -> Res[None]:
+    async def reg(self, types: Iterable[type | Coded[type]]) -> Res[None]:
         """
         Reg codes for types.
 
@@ -387,7 +406,16 @@ class ServerBus(Singleton):
 
         So it's better to be called once and at the start of the program.
         """
-        upd_res = await Code.upd(types, self.DEFAULT_CODE_ORDER)
+        # TODO: manual code insertion, until Code.upd support Coded[type]
+        regular_types = typing.cast(
+            Iterable[type],
+            filter(lambda t: inspect.isclass(t), types))
+        coded_types = typing.cast(
+            Iterable[Coded[type]],
+            filter(lambda t: isinstance(t, Coded), types))
+        upd_res = await Code.upd(regular_types, self.DEFAULT_CODE_ORDER)
+        for coded_type in coded_types:
+            Code._code_to_type[coded_type.code] = coded_type.val
         if isinstance(upd_res, Err):
             return upd_res
         return await self._set_welcome()
@@ -611,7 +639,8 @@ class ServerBus(Singleton):
         if isinstance(res, Ok):
             val = res.okval
         elif isinstance(res, Err):
-            val = create_err_dto(res.errval).eject()
+            val = (await create_err_dto(res.errval)).eject()
+            val = val.model_dump(exclude_none=True)
         else:
             log.err(
                 f"rpcfn on req {data} returned non-res val {res} => skip")

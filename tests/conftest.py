@@ -6,7 +6,7 @@ from typing import Self
 import pytest_asyncio
 from pydantic import BaseModel
 from pykit.err import ValErr
-from pykit.res import Err, Ok, Res
+from pykit.res import Err, Ok, Res, valerr
 
 from rxcat import (
     Conn,
@@ -90,17 +90,17 @@ class MockCtxManager:
 async def get_mock_ctx_manager_for_msg(_) -> Res[MockCtxManager]:
     return Ok(MockCtxManager())
 
-async def get_mock_ctx_manager_for_srpc_req(_) -> Res[MockCtxManager]:
+async def get_mock_ctx_manager_for_srpc_send(_) -> Res[MockCtxManager]:
     return Ok(MockCtxManager())
 
 def find_datacodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
-    for i, code_container in enumerate(rmsg["indexed_mcodes"]):
+    for i, code_container in enumerate(rmsg["data"]["codes"]):
         if code in code_container:
             return Ok(i)
-    return Err(ValErr())
+    return valerr(code)
 
 def find_errcodeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
     for i, code_container in enumerate(rmsg["indexed_errcodes"]):
         if code in code_container:
             return Ok(i)
-    return Err(ValErr())
+    return valerr(code)

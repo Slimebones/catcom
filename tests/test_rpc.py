@@ -33,31 +33,37 @@ async def test_main(server_bus: ServerBus):
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
     rxcat_rpc_req_datacodeid = find_datacodeid_in_welcome_rmsg(
-        "rxcat__srpc_req", welcome_rmsg).eject()
+        "rxcat__srpc_send", welcome_rmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
 
     rpc_token = uuid4()
     rpc_key = "srpc__update_email:" + rpc_token
     await conn_1.client__send({
-        "msid": uuid4(),
+        "sid": uuid4(),
         "datacodeid": rxcat_rpc_req_datacodeid,
-        "key": rpc_key,
-        "args": {"username": "test_username", "email": "test_email"}
+        "data": {
+            "key": rpc_key,
+            "args": {"username": "test_username", "email": "test_email"}
+        }
     })
-    rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rpc_data = rpc_recv["data"]
     assert rpc_data["key"] == rpc_key
     assert rpc_data["val"] == 0
 
     rpc_token = uuid4()
     rpc_key = "srpc__update_email:" + rpc_token
     await conn_1.client__send({
-        "msid": uuid4(),
+        "sid": uuid4(),
         "datacodeid": rxcat_rpc_req_datacodeid,
-        "key": rpc_key,
-        "args": {"username": "throw", "email": "test_email"}
+        "data": {
+            "key": rpc_key,
+            "args": {"username": "throw", "email": "test_email"}
+        }
     })
-    rpc_data = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rpc_data = rpc_recv["data"]
     assert rpc_data["key"] == rpc_key
     val = rpc_data["val"]
     assert val["datacodeid"] == \
