@@ -406,16 +406,7 @@ class ServerBus(Singleton):
 
         So it's better to be called once and at the start of the program.
         """
-        # TODO: manual code insertion, until Code.upd support Coded[type]
-        regular_types = typing.cast(
-            Iterable[type],
-            filter(lambda t: inspect.isclass(t), types))
-        coded_types = typing.cast(
-            Iterable[Coded[type]],
-            filter(lambda t: isinstance(t, Coded), types))
-        upd_res = await Code.upd(regular_types, self.DEFAULT_CODE_ORDER)
-        for coded_type in coded_types:
-            Code._code_to_type[coded_type.code] = coded_type.val
+        upd_res = await Code.upd(types, self.DEFAULT_CODE_ORDER)
         if isinstance(upd_res, Err):
             return upd_res
         return await self._set_welcome()

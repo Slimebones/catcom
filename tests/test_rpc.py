@@ -1,7 +1,7 @@
 import asyncio
 
 from pydantic import BaseModel
-from pykit.code import get_fqname
+from pykit.code import Code, get_fqname
 from pykit.err import ValErr
 from pykit.res import Err, Ok, Res
 from pykit.uuid import uuid4
@@ -9,8 +9,7 @@ from pykit.uuid import uuid4
 from rxcat import ConnArgs, ServerBus
 from tests.conftest import (
     MockConn,
-    find_datacodeid_in_welcome_rmsg,
-    find_errcodeid_in_welcome_rmsg,
+    find_codeid_in_welcome_rmsg,
 )
 
 
@@ -32,7 +31,7 @@ async def test_main(server_bus: ServerBus):
     conn_task_1 = asyncio.create_task(server_bus.conn(conn_1))
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
-    rxcat_rpc_req_datacodeid = find_datacodeid_in_welcome_rmsg(
+    rxcat_rpc_req_datacodeid = find_codeid_in_welcome_rmsg(
         "rxcat__srpc_send", welcome_rmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
@@ -66,8 +65,7 @@ async def test_main(server_bus: ServerBus):
     rpc_data = rpc_recv["data"]
     assert rpc_data["key"] == rpc_key
     val = rpc_data["val"]
-    assert val["datacodeid"] == \
-        find_errcodeid_in_welcome_rmsg("val-err", welcome_rmsg).eject()
+    assert rpc_data["val"]["errcode"] == ValErr.code()
     assert val["msg"] == "hello"
     assert val["name"] == get_fqname(ValErr())
 
