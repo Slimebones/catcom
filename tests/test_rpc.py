@@ -14,10 +14,10 @@ from tests.conftest import (
 
 
 async def test_main(server_bus: ServerBus):
-    class UpdateEmailArgs(BaseModel):
+    class UpdEmailArgs(BaseModel):
         username: str
         email: str
-    async def srpc__update_email(args: UpdateEmailArgs) -> Res[int]:
+    async def srpc__update_email(args: UpdEmailArgs) -> Res[int]:
         username = args.username
         email = args.email
         if username == "throw":

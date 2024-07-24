@@ -93,7 +93,8 @@ class RetState(Enum):
     """
 
 class ResourceServerErr(Exception):
-    def code(self) -> str:
+    @staticmethod
+    def code() -> str:
         return "rxcat__resource_server_err"
 
 class ServerRegData(BaseModel):
@@ -105,6 +106,10 @@ class ServerRegData(BaseModel):
     Dict to be sent back to client with extra information from the resource
     server.
     """
+
+    @staticmethod
+    def code() -> str:
+        return "rxcat__server_reg_data"
 
 @runtime_checkable
 class RegFn(Protocol):
@@ -191,6 +196,8 @@ class SubOpts(BaseModel):
     """
     in_filters: Iterable[MdataFilter] | None = None
     out_filters: Iterable[SubFnRetvalFilter] | None = None
+
+    warn_unconventional_subfn_names: bool = True
 
 _rxcat_ctx = ContextVar("rxcat", default={})
 
@@ -482,7 +489,12 @@ class ServerBus(Singleton):
 
         try:
             if atransport.transport.server__reg_process == "reg_req":
-                (await self._read_first_msg(conn, atransport)).eject()
+                reg_data = (
+                    await self._read_first_msg(conn, atransport)).eject()
+                if reg_data:
+                    (await self.pub(
+                        reg_data,
+                        PubOpts(target_connsids=[conn.sid]))).eject()
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
         finally:
@@ -508,14 +520,18 @@ class ServerBus(Singleton):
             ) from err
 
     async def _read_first_msg(
-            self, conn: Conn, atransport: ActiveTransport) -> Res:
+            self,
+            conn: Conn,
+            atransport: ActiveTransport) -> Res[ServerRegData | None]:
         rmsg = await self._receive_from_conn(conn, atransport)
-        msg = await self._parse_rmsg(rmsg, conn)
-        if not msg:
-            return Err(ValErr("failed to parse first msg from"))
+
+        msg_res = await self._parse_rmsg(rmsg, conn)
+        if isinstance(msg_res, Err):
+            return msg_res
+        msg = msg_res.okval
+
         if not isinstance(msg, Reg):
-            return Err(ValErr(
-                f"first msg should be RegReq, got {msg}"))
+            return valerr(f"first msg should be RegReq, got {msg}")
 
         reg_res = Ok(None)
         if self._cfg.reg_fn is not None:
@@ -524,8 +540,6 @@ class ServerBus(Singleton):
             if isinstance(reg_res, Err):
                 return reg_res
 
-        # TODO:
-        #   send back reg data for the client if reg_res is Ok
         return reg_res
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
@@ -680,6 +694,11 @@ class ServerBus(Singleton):
         Returns:
             Unsubscribe function.
         """
+        if (
+            not subfn.__name__.startswith("sub__")  # type: ignore
+            and opts.warn_unconventional_subfn_names):
+            log.warn(f"prefix subscription function {subfn} with \"sub__\"")
+
         r = self._check_norpc_mdata(datatype, "subscription")
         if isinstance(r, Err):
             return r
