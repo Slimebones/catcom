@@ -7,6 +7,7 @@ import contextlib
 import functools
 import typing
 from asyncio import Queue
+from pykit.res import Result
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from enum import Enum
@@ -780,7 +781,8 @@ class ServerBus(Singleton):
             return valerr(f"unrecognized PubOpts.lsid operator: {lsid}")
         return Ok(lsid)
 
-    def _make_msg(self, data: Mdata, opts: PubOpts = PubOpts()) -> Res[Msg]:
+    def _make_msg(
+            self, data: Mdata | Result, opts: PubOpts = PubOpts()) -> Res[Msg]:
         code_res = Code.get_from_type(type(data))
         if isinstance(code_res, Err):
             return code_res
@@ -822,7 +824,14 @@ class ServerBus(Singleton):
 
         Received Exceptions are additionally logged if
         cfg.trace_errs_on_pub == True.
+
+        Passed Result will be fetched for value.
         """
+        if isinstance(data, Ok):
+            data = data.okval
+        elif isinstance(data, Err):
+            data = data.errval
+
         msg_res = self._make_msg(data, opts)
         if isinstance(msg_res, Err):
             return msg_res
