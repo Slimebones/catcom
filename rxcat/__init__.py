@@ -336,56 +336,6 @@ class ServerBus(Singleton):
             *reg_types
         ])).eject()
 
-    def _init_transports(self):
-        self._conn_type_to_atransport: dict[type[Conn], ActiveTransport] = {}
-        transports = self._cfg.transports
-        if not self._cfg.transports:
-            transports = [self.DEFAULT_TRANSPORT]
-        for transport in typing.cast(list[Transport], transports):
-            if transport.conn_type in self._conn_type_to_atransport:
-                log.err(
-                    f"conn type {transport.conn_type} is already regd"
-                    " => skip")
-                continue
-            if not transport.is_server:
-                log.err(
-                    f"only server transports are accepted, got {transport}"
-                    " => skip")
-                continue
-
-            inp_queue = Queue(transport.max_inp_queue_size)
-            out_queue = Queue(transport.max_out_queue_size)
-            inp_task = asyncio.create_task(self._process_inp_queue(
-                transport, inp_queue))
-            out_task = asyncio.create_task(self._process_out_queue(
-                transport, out_queue))
-            atransport = ActiveTransport(
-                transport=transport,
-                inp_queue=inp_queue,
-                out_queue=out_queue,
-                inp_queue_processor=inp_task,
-                out_queue_processor=out_task)
-            self._conn_type_to_atransport[transport.conn_type] = atransport
-
-    async def _set_welcome(self) -> Res[None]:
-        codes_res = await Code.get_regd_codes()
-        if isinstance(codes_res, Err):
-            return codes_res
-        codes = codes_res.okval
-        welcome = Welcome(codes=codes)
-        self._preserialized_welcome_msg = (await Msg(
-            skip__datacode=Welcome.code(),
-            data=welcome).serialize_to_net()).eject()
-        rewelcome_res = await self._rewelcome_all_conns()
-        if isinstance(rewelcome_res, Err):
-            return rewelcome_res
-        return Ok(None)
-
-    async def _rewelcome_all_conns(self) -> Res[None]:
-        return Ok(await self._pub_rmsg_to_net(
-            self._preserialized_welcome_msg,
-            self._sid_to_conn.keys()))
-
     async def close_conn(self, sid: str) -> Res[None]:
         if sid not in self._sid_to_conn:
             return Err(NotFoundErr(f"conn with sid {sid}"))
@@ -1084,3 +1034,53 @@ class ServerBus(Singleton):
         rmsg["skip__connsid"] = conn.sid
         msg_res = await Msg.deserialize_from_net(rmsg)
         return msg_res
+
+    def _init_transports(self):
+        self._conn_type_to_atransport: dict[type[Conn], ActiveTransport] = {}
+        transports = self._cfg.transports
+        if not self._cfg.transports:
+            transports = [self.DEFAULT_TRANSPORT]
+        for transport in typing.cast(list[Transport], transports):
+            if transport.conn_type in self._conn_type_to_atransport:
+                log.err(
+                    f"conn type {transport.conn_type} is already regd"
+                    " => skip")
+                continue
+            if not transport.is_server:
+                log.err(
+                    f"only server transports are accepted, got {transport}"
+                    " => skip")
+                continue
+
+            inp_queue = Queue(transport.max_inp_queue_size)
+            out_queue = Queue(transport.max_out_queue_size)
+            inp_task = asyncio.create_task(self._process_inp_queue(
+                transport, inp_queue))
+            out_task = asyncio.create_task(self._process_out_queue(
+                transport, out_queue))
+            atransport = ActiveTransport(
+                transport=transport,
+                inp_queue=inp_queue,
+                out_queue=out_queue,
+                inp_queue_processor=inp_task,
+                out_queue_processor=out_task)
+            self._conn_type_to_atransport[transport.conn_type] = atransport
+
+    async def _set_welcome(self) -> Res[None]:
+        codes_res = await Code.get_regd_codes()
+        if isinstance(codes_res, Err):
+            return codes_res
+        codes = codes_res.okval
+        welcome = Welcome(codes=codes)
+        self._preserialized_welcome_msg = (await Msg(
+            skip__datacode=Welcome.code(),
+            data=welcome).serialize_to_net()).eject()
+        rewelcome_res = await self._rewelcome_all_conns()
+        if isinstance(rewelcome_res, Err):
+            return rewelcome_res
+        return Ok(None)
+
+    async def _rewelcome_all_conns(self) -> Res[None]:
+        return Ok(await self._pub_rmsg_to_net(
+            self._preserialized_welcome_msg,
+            self._sid_to_conn.keys()))
