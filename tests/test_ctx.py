@@ -22,13 +22,13 @@ from tests.conftest import (
 )
 
 
-async def test_subfn(server_bus: ServerBus):
+async def test_subfn(sbus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
     async def f(data: Mock_1):
-        assert server_bus.get_ctx()["connsid"] == conn.sid
+        assert sbus.get_ctx()["connsid"] == conn.sid
 
-    await server_bus.sub(Mock_1, f)
-    conn_task = asyncio.create_task(server_bus.conn(conn))
+    await sbus.sub(Mock_1, f)
+    conn_task = asyncio.create_task(sbus.conn(conn))
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
@@ -43,13 +43,13 @@ async def test_subfn(server_bus: ServerBus):
         rmsg["datacodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
     conn_task.cancel()
 
-async def test_rpc(server_bus: ServerBus):
+async def test_rpc(sbus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
     async def srpc__update_email(args: EmptyRpcArgs) -> Res[int]:
-        assert server_bus.get_ctx()["connsid"] == conn.sid
+        assert sbus.get_ctx()["connsid"] == conn.sid
         return Ok(0)
 
-    conn_task = asyncio.create_task(server_bus.conn(conn))
+    conn_task = asyncio.create_task(sbus.conn(conn))
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
     ServerBus.reg_rpc(srpc__update_email).eject()
@@ -70,18 +70,18 @@ async def test_rpc(server_bus: ServerBus):
     conn_task.cancel()
 
 async def test_sub_custom_ctx_manager():
-    server_bus = ServerBus.ie()
-    await server_bus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
+    sbus = ServerBus.ie()
+    await sbus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
     async def sub__f(data: Mock_1):
         assert rxcat_mock_ctx.get()["name"] == "hello"
 
-    await server_bus.sub(Mock_1, sub__f)
-    await server_bus.pubr(Mock_1(num=1))
+    await sbus.sub(Mock_1, sub__f)
+    await sbus.pubr(Mock_1(num=1))
 
 async def test_rpc_custom_ctx_manager():
-    server_bus = ServerBus.ie()
-    await server_bus.init(ServerBusCfg(
+    sbus = ServerBus.ie()
+    await sbus.init(ServerBusCfg(
         transports=[
             Transport(
                 is_server=True,
@@ -95,7 +95,7 @@ async def test_rpc_custom_ctx_manager():
         assert rxcat_mock_ctx.get()["name"] == "hello"
         return Ok(0)
 
-    conn_task = asyncio.create_task(server_bus.conn(conn))
+    conn_task = asyncio.create_task(sbus.conn(conn))
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
     ServerBus.reg_rpc(srpc__update_email).eject()

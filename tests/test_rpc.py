@@ -13,7 +13,7 @@ from tests.conftest import (
 )
 
 
-async def test_main(server_bus: ServerBus):
+async def test_main(sbus: ServerBus):
     class UpdEmailArgs(BaseModel):
         username: str
         email: str
@@ -28,7 +28,7 @@ async def test_main(server_bus: ServerBus):
 
     conn_1 = MockConn(ConnArgs(
         core=None))
-    conn_task_1 = asyncio.create_task(server_bus.conn(conn_1))
+    conn_task_1 = asyncio.create_task(sbus.conn(conn_1))
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
     rxcat_rpc_req_datacodeid = find_codeid_in_welcome_rmsg(

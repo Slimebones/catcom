@@ -9,7 +9,7 @@ and pass new established connections to ServerBus.conn method, where
 connection processing further relies on ServerBus.
 """
 from asyncio import Queue, Task
-from typing import Generic, Literal, Protocol, Self, TypeVar, runtime_checkable
+from typing import Generic, Protocol, Self, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 from pykit.rand import RandomUtils

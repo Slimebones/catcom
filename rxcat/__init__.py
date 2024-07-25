@@ -271,6 +271,7 @@ class ServerBus(Singleton):
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
         "rxcat__reg",
+        "rxcat__server_reg_data",
         "rxcat__welcome"
     ]
 
@@ -308,6 +309,7 @@ class ServerBus(Singleton):
         reg_types = [] if cfg.reg_types is None else cfg.reg_types
         (await self.reg_types([
             Reg,
+            ServerRegData,
             Welcome,
             ok,
             ErrDto,
@@ -451,9 +453,13 @@ class ServerBus(Singleton):
                 reg_data = (
                     await self._read_first_msg(conn, atransport)).eject()
                 if reg_data:
-                    (await self.pub(
-                        reg_data,
-                        PubOpts(target_connsids=[conn.sid]))).eject()
+                    # push reg msg manually to ensure it arrives before
+                    # the welcome msg, and is not stucking in the queue
+                    reg_data_msg = self._make_msg(
+                        reg_data, PubOpts(target_connsids=[conn.sid])).eject()
+                    serialized = (await reg_data_msg.serialize_to_net()) \
+                        .eject()
+                    await conn.send(serialized)
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
         finally:
@@ -897,13 +903,13 @@ class ServerBus(Singleton):
             return msg_res
         msg = msg_res.okval
 
-        if not isinstance(msg, Reg):
-            return valerr(f"first msg should be RegReq, got {msg}")
+        if not isinstance(msg.data, Reg):
+            return valerr(f"first msg data should be Reg, got {msg.data}")
 
         reg_res = Ok(None)
         if self._cfg.reg_fn is not None:
             reg_res = await self._cfg.reg_fn(
-                msg.tokens, msg.data)
+                msg.data.tokens, msg.data.data)
             if isinstance(reg_res, Err):
                 return reg_res
 

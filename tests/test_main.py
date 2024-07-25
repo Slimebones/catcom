@@ -1,12 +1,21 @@
 import asyncio
+from typing import Any
 
 from pykit.code import Code
 from pykit.err import ValErr
 from pykit.err_utils import get_err_msg
-from pykit.res import Ok
+from pykit.res import Ok, Res
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, PubList, PubOpts, ServerBus
+from rxcat import (
+    ConnArgs,
+    PubList,
+    PubOpts,
+    ServerBus,
+    ServerBusCfg,
+    ServerRegData,
+    Transport,
+)
 from tests.conftest import (
     Mock_1,
     Mock_2,
@@ -14,7 +23,7 @@ from tests.conftest import (
 )
 
 
-async def test_pubsub(server_bus: ServerBus):
+async def test_pubsub(sbus: ServerBus):
     flag = False
 
     async def sub__mock_1(data: Mock_1):
@@ -23,16 +32,18 @@ async def test_pubsub(server_bus: ServerBus):
         nonlocal flag
         flag = True
 
-    (await server_bus.sub(Mock_1, sub__mock_1)).eject()
-    (await server_bus.pub(Mock_1(num=1))).eject()
+    (await sbus.sub(Mock_1, sub__mock_1)).eject()
+    (await sbus.pub(Mock_1(num=1))).eject()
 
     assert flag
 
-async def test_reg_req_has_index_0(server_bus: ServerBus):
-    assert \
-        (await Code.get_regd_codes()).eject()[0] == "rxcat__reg"
+async def test_data_static_indexes(sbus: ServerBus):
+    codes = (await Code.get_regd_codes()).eject()
+    assert codes[0] == "rxcat__reg"
+    assert codes[1] == "rxcat__server_reg_data"
+    assert codes[2] == "rxcat__welcome"
 
-async def test_pubsub_err(server_bus: ServerBus):
+async def test_pubsub_err(sbus: ServerBus):
     flag = False
 
     async def sub__test(data: ValErr):
@@ -41,32 +52,32 @@ async def test_pubsub_err(server_bus: ServerBus):
         nonlocal flag
         flag = True
 
-    (await server_bus.sub(ValErr, sub__test)).eject()
-    (await server_bus.pub(ValErr("hello"))).eject()
+    (await sbus.sub(ValErr, sub__test)).eject()
+    (await sbus.pub(ValErr("hello"))).eject()
     assert flag
 
-async def test_pubr(server_bus: ServerBus):
+async def test_pubr(sbus: ServerBus):
     async def sub__test(data: ValErr):
         assert type(data) is ValErr
         assert get_err_msg(data) == "hello"
         return Ok(Mock_1(num=1))
 
-    (await server_bus.sub(ValErr, sub__test)).eject()
-    response = (await server_bus.pubr(
+    (await sbus.sub(ValErr, sub__test)).eject()
+    response = (await sbus.pubr(
         ValErr("hello"), PubOpts(pubr__timeout=1))).eject()
     assert type(response) is Mock_1
     assert response.num == 1
 
-async def test_lsid_net(server_bus: ServerBus):
+async def test_lsid_net(sbus: ServerBus):
     """
     Tests correctness of published back to net responses.
     """
     async def sub__test(data: Mock_1):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
-    await server_bus.sub(Mock_1, sub__test)
+    await sbus.sub(Mock_1, sub__test)
     conn = MockConn(ConnArgs(core=None))
-    conn_task = asyncio.create_task(server_bus.conn(conn))
+    conn_task = asyncio.create_task(sbus.conn(conn))
 
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
@@ -92,34 +103,56 @@ async def test_lsid_net(server_bus: ServerBus):
 
     conn_task.cancel()
 
-async def test_reg(reg_server_bus: ServerBus):
-    !!
-    server_bus = reg_server_bus
+async def test_reg():
+    async def reg_fn(
+            tokens: list[str],
+            client_data: dict[str, Any] | None) -> Res[ServerRegData]:
+        assert tokens == ["whocares_1", "whocares_2"]
+        assert client_data == {"name": "mark"}
+        return Ok(ServerRegData(data={"state": 12}))
+
+    flag = False
+    async def sub__f(data: Mock_1):
+        nonlocal flag
+        flag = True
+
+    sbus = ServerBus.ie()
+    cfg = ServerBusCfg(
+        transports=[
+            Transport(
+                is_server=True,
+                conn_type=MockConn,
+                is_registration_enabled=True)
+        ],
+        reg_types=[
+            Mock_1,
+            Mock_2
+        ],
+        reg_fn=reg_fn)
+    await asyncio.wait_for(sbus.init(cfg), 1)
 
     conn = MockConn(ConnArgs(core=None))
-    conn_task = asyncio.create_task(server_bus.conn(conn))
+    conn_task = asyncio.create_task(sbus.conn(conn))
 
-    await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "datacodeid": 0,
         "data": {
-            "num": 1
+            "tokens": ["whocares_1", "whocares_2"],
+            "data": {
+                "name": "mark"
+            }
         }
     })
-    await asyncio.sleep(0.1)
-    count = 0
-    while not conn.out_queue.empty():
-        response = await asyncio.wait_for(conn.client__recv(), 1)
-        response_data = response["data"]
-        count += 1
-        if count == 1:
-            assert response_data["num"] == 2
-        elif count == 2:
-            assert response_data["num"] == 3
-        else:
-            raise AssertionError
-    assert count == 2
+    server_reg_evt = await asyncio.wait_for(conn.client__recv(), 1)
+    assert server_reg_evt["datacodeid"] == 1
+    assert server_reg_evt["data"]["data"] == {"state": 12}
+    welcome = await asyncio.wait_for(conn.client__recv(), 1)
+    assert welcome["datacodeid"] == 2
+
+    (await sbus.sub(Mock_1, sub__f)).eject()
+    (await sbus.pub(Mock_1(num=1))).eject()
+
+    assert flag
 
     conn_task.cancel()
-
