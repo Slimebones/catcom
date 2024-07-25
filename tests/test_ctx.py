@@ -24,23 +24,23 @@ from tests.conftest import (
 
 async def test_subfn(sbus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
-    async def f(data: Mock_1):
+    async def sub__f(body: Mock_1):
         assert sbus.get_ctx()["connsid"] == conn.sid
 
-    await sbus.sub(f)
+    await sbus.sub(sub__f)
     conn_task = asyncio.create_task(sbus.conn(conn))
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
-        "data": {
+        "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "body": {
             "num": 1
         }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
     assert \
-        rmsg["datacodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
+        rmsg["bodycodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
     conn_task.cancel()
 
 async def test_rpc(sbus: ServerBus):
@@ -57,14 +57,14 @@ async def test_rpc(sbus: ServerBus):
     rpc_key = "srpc__update_email:" + rpc_token
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
-        "data": {
+        "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
+        "body": {
             "key": rpc_key,
             "args": {"username": "test_username", "email": "test_email"}
         }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
-    assert rmsg["datacodeid"] == \
+    assert rmsg["bodycodeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
     conn_task.cancel()
@@ -73,7 +73,7 @@ async def test_sub_custom_ctx_manager():
     sbus = ServerBus.ie()
     await sbus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
-    async def sub__f(data: Mock_1):
+    async def sub__f(body: Mock_1):
         assert rxcat_mock_ctx.get()["name"] == "hello"
 
     await sbus.sub(sub__f)
@@ -85,8 +85,7 @@ async def test_rpc_custom_ctx_manager():
         transports=[
             Transport(
                 is_server=True,
-                conn_type=MockConn,
-                is_registration_enabled=False)
+                conn_type=MockConn)
         ],
         sub_ctxfn=get_mock_ctx_manager_for_msg))
 
@@ -103,14 +102,14 @@ async def test_rpc_custom_ctx_manager():
     rpc_key = "srpc__update_email:" + rpc_token
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
-        "data": {
+        "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
+        "body": {
             "key": rpc_key,
             "args": {}
         }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
-    assert rmsg["datacodeid"] == \
+    assert rmsg["bodycodeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
     conn_task.cancel()

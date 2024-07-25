@@ -30,9 +30,9 @@ from pykit.singleton import Singleton
 from pykit.uuid import uuid4
 
 from rxcat._msg import (
-    Mdata,
+    Mbody,
     Msg,
-    TMdata_contra,
+    TMbody_contra,
     Welcome,
     ok,
 )
@@ -55,7 +55,7 @@ __all__ = [
 
     "ResourceServerErr",
 
-    "Mdata",
+    "Mbody",
 
     "RpcFn",
     "srpc",
@@ -86,10 +86,10 @@ class StaticCodeid:
     Welcome = 0
     Ok = 1
 
-SubFnRetval = Mdata | Iterable[Mdata] | None
+SubFnRetval = Mbody | Iterable[Mbody] | None
 @runtime_checkable
-class SubFn(Protocol, Generic[TMdata_contra]):
-    async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
+class SubFn(Protocol, Generic[TMbody_contra]):
+    async def __call__(self, body: TMbody_contra) -> SubFnRetval: ...
 
 def sub(target: SubFn):
     ServerBus.subfn_init_queue.add(target)
@@ -104,9 +104,9 @@ def srpc(target: RpcFn):
         return target(*args, **kwargs)
     return inner
 
-class PubList(list[Mdata]):
+class PubList(list[Mbody]):
     """
-    List of mdata to be published.
+    List of mbody to be published.
 
     Useful as retval from subfn to signify that this list should be unpacked
     and each item be published.
@@ -119,8 +119,8 @@ class SkipMe:
     """
 
 class InterruptPipeline:
-    def __init__(self, data: Mdata) -> None:
-        self.data = data
+    def __init__(self, body: Mbody) -> None:
+        self.body = body
 
 class ResourceServerErr(Exception):
     @staticmethod
@@ -176,25 +176,25 @@ class PubOpts(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-MdataCondition = Callable[[Mdata], Awaitable[bool]]
-MdataFilter = Callable[[Mdata], Awaitable[Mdata]]
+MbodyCondition = Callable[[Mbody], Awaitable[bool]]
+MbodyFilter = Callable[[Mbody], Awaitable[Mbody]]
 SubFnRetvalFilter = Callable[[SubFnRetval], Awaitable[SubFnRetval]]
 
 class SubOpts(BaseModel):
     recv_last_msg: bool = True
     """
-    Whether to receive last stored msg with the same data code.
+    Whether to receive last stored msg with the same body code.
     """
-    conditions: Iterable[MdataCondition] | None = None
+    conditions: Iterable[MbodyCondition] | None = None
     """
     Conditions that must be true in order for the subscriber to be called.
 
-    Are applied to the data only after passing it through ``in_filters``.
+    Are applied to the body only after passing it through ``in_filters``.
 
     If all conditions fail for a subscriber, it is skipped completely
     (returns RetState.SkipMe).
     """
-    inp_filters: Iterable[MdataFilter] | None = None
+    inp_filters: Iterable[MbodyFilter] | None = None
     out_filters: Iterable[SubFnRetvalFilter] | None = None
 
     warn_unconventional_subfn_names: bool = True
@@ -239,8 +239,8 @@ class ServerBusCfg(BaseModel):
     log_net_send: bool = True
     log_net_recv: bool = True
 
-    global_subfn_conditions: Iterable[MdataCondition] | None = None
-    global_subfn_inp_filters: Iterable[MdataFilter] | None = None
+    global_subfn_conditions: Iterable[MbodyCondition] | None = None
+    global_subfn_inp_filters: Iterable[MbodyFilter] | None = None
     global_subfn_out_filters: Iterable[SubFnRetvalFilter] | None = None
 
     consider_sub_decorators: bool = True
@@ -333,7 +333,7 @@ class ServerBus(Singleton):
         self._subsid_to_code: dict[str, str] = {}
         self._subsid_to_subfn: dict[str, SubFn] = {}
         self._code_to_subfns: dict[str, list[SubFn]] = {}
-        self._code_to_last_mdata: dict[str, Mdata] = {}
+        self._code_to_last_mbody: dict[str, Mbody] = {}
 
         self._preserialized_welcome_msg: dict = {}
 
@@ -498,8 +498,8 @@ class ServerBus(Singleton):
             if conn.sid in self._sid_to_conn:
                 del self._sid_to_conn[conn.sid]
 
-    def _get_datatype_from_subfn(
-            self, subfn: SubFn[TMdata_contra]) -> Res[type[TMdata_contra]]:
+    def _get_bodytype_from_subfn(
+            self, subfn: SubFn[TMbody_contra]) -> Res[type[TMbody_contra]]:
         sig = signature(subfn)
         params = list(sig.parameters.values())
         if len(params) != 1:
@@ -511,7 +511,7 @@ class ServerBus(Singleton):
 
     async def sub(
         self,
-        subfn: SubFn[TMdata_contra],
+        subfn: SubFn[TMbody_contra],
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable[[], Awaitable[Res[None]]]]:
         """
@@ -528,25 +528,25 @@ class ServerBus(Singleton):
         Returns:
             Unsubscribe function.
         """
-        datatype_res = self._get_datatype_from_subfn(subfn)
-        if isinstance(datatype_res, Err):
-            return datatype_res
-        datatype = datatype_res.okval
+        bodytype_res = self._get_bodytype_from_subfn(subfn)
+        if isinstance(bodytype_res, Err):
+            return bodytype_res
+        bodytype = bodytype_res.okval
 
         if (
                 not subfn.__name__.startswith("sub__")  # type: ignore
                 and opts.warn_unconventional_subfn_names):
             log.warn(f"prefix subscription function {subfn} with \"sub__\"")
 
-        r = self._check_norpc_mdata(datatype, "subscription")
+        r = self._check_norpc_mbody(bodytype, "subscription")
         if isinstance(r, Err):
             return r
         subsid = uuid4()
         subfn = self._apply_opts_to_subfn(subfn, opts)
 
-        if not isclass(datatype):
-            return valerr(f"datatype {datatype} should be a class")
-        code_res = Code.get_from_type(datatype)
+        if not isclass(bodytype):
+            return valerr(f"bodytype {bodytype} should be a class")
+        code_res = Code.get_from_type(bodytype)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
@@ -560,9 +560,9 @@ class ServerBus(Singleton):
         self._subsid_to_subfn[subsid] = subfn
         self._subsid_to_code[subsid] = code
 
-        if opts.recv_last_msg and code in self._code_to_last_mdata:
-            last_data = self._code_to_last_mdata[code]
-            await self._call_subfn(subfn, last_data)
+        if opts.recv_last_msg and code in self._code_to_last_mbody:
+            last_body = self._code_to_last_mbody[code]
+            await self._call_subfn(subfn, last_body)
 
         return Ok(functools.partial(self.unsub, subsid))
 
@@ -590,27 +590,27 @@ class ServerBus(Singleton):
 
     async def pubr(
         self,
-        data: Mdata,
+        body: Mbody,
         opts: PubOpts = PubOpts()
-    ) -> Res[Mdata]:
+    ) -> Res[Mbody]:
         """
         Publishes a message and awaits for the response.
 
         If the response is Exception, it is wrapped to res::Err.
         """
         aevt = asyncio.Event()
-        ptr: Ptr[Mdata] = Ptr(target=None)
+        ptr: Ptr[Mbody] = Ptr(target=None)
 
-        def wrapper(aevt: asyncio.Event, ptr: Ptr[Mdata]):
-            async def fn(data: Mdata):
+        def wrapper(aevt: asyncio.Event, ptr: Ptr[Mbody]):
+            async def fn(body: Mbody):
                 aevt.set()
-                ptr.target = data
+                ptr.target = body
             return fn
 
         if opts.subfn is not None:
             log.warn("don't pass PubOpts.subfn to pubr, it gets overwritten")
         opts.subfn = wrapper(aevt, ptr)
-        pub_res = await self.pub(data, opts)
+        pub_res = await self.pub(body, opts)
         if isinstance(pub_res, Err):
             return pub_res
         if opts.pubr__timeout is None:
@@ -637,10 +637,10 @@ class ServerBus(Singleton):
 
     async def pub(
             self,
-            data: Mdata | Result | Msg,
+            body: Mbody | Result | Msg,
             opts: PubOpts = PubOpts()) -> Res[None]:
         """
-        Publishes data to the bus.
+        Publishes body to the bus.
 
         For received UnwrapErr, it's res.errval will be used.
 
@@ -651,23 +651,23 @@ class ServerBus(Singleton):
 
         Passing rxcat::Msg is restricted to internal usage.
         """
-        if isinstance(data, Ok):
-            data = data.okval
-        elif isinstance(data, Err):
-            data = data.errval
+        if isinstance(body, Ok):
+            body = body.okval
+        elif isinstance(body, Err):
+            body = body.errval
 
-        if isinstance(data, Msg):
-            msg = data
-            data = msg.data
-            code = msg.skip__datacode
+        if isinstance(body, Msg):
+            msg = body
+            body = msg.body
+            code = msg.skip__bodycode
         else:
-            msg_res = self._make_msg(data, opts)
+            msg_res = self._make_msg(body, opts)
             if isinstance(msg_res, Err):
                 return msg_res
             msg = msg_res.okval
-            code = msg.skip__datacode
+            code = msg.skip__bodycode
 
-        r = self._check_norpc_mdata(msg, "publication")
+        r = self._check_norpc_mbody(msg, "publication")
         if isinstance(r, Err):
             return r
 
@@ -676,25 +676,25 @@ class ServerBus(Singleton):
                 return Err(AlreadyProcessedErr(f"{msg} for pubr"))
             self._lsid_to_subfn[msg.sid] = opts.subfn
 
-        self._code_to_last_mdata[code] = data
+        self._code_to_last_mbody[code] = body
 
         await self._exec_pub_send_order(msg, opts)
         return Ok(None)
 
-    def _unpack_err(self, data: Exception, track: bool) -> Mdata:
-        if isinstance(data, Exception):
-            if isinstance(data, UnwrapErr):
-                res = data.result
+    def _unpack_err(self, body: Exception, track: bool) -> Mbody:
+        if isinstance(body, Exception):
+            if isinstance(body, UnwrapErr):
+                res = body.result
                 assert isinstance(res, Err)
                 if isinstance(res.errval, Exception):
-                    data = res.errval
+                    body = res.errval
                 else:
-                    data = ResourceServerErr(
+                    body = ResourceServerErr(
                         f"got res with err value {res.errval},"
                         " which is not an instance of Exception")
             if track:
-                log.track(data, "unpack err")
-        return data
+                log.track(body, "unpack err")
+        return body
 
     def _unpack_lsid(self, lsid: str | None) -> Res[str | None]:
         if lsid == "$ctx::msid":
@@ -710,15 +710,15 @@ class ServerBus(Singleton):
         return Ok(lsid)
 
     def _make_msg(
-            self, data: Mdata, opts: PubOpts = PubOpts()) -> Res[Msg]:
-        code_res = Code.get_from_type(type(data))
+            self, body: Mbody, opts: PubOpts = PubOpts()) -> Res[Msg]:
+        code_res = Code.get_from_type(type(body))
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
         if not Code.has_code(code):
             return valerr(f"code {code} is not registered")
 
-        data = self._unpack_err(data, self._cfg.trace_errs_on_pub)
+        body = self._unpack_err(body, self._cfg.trace_errs_on_pub)
 
         lsid_res = self._unpack_lsid(opts.lsid)
         if isinstance(lsid_res, Err):
@@ -737,8 +737,8 @@ class ServerBus(Singleton):
 
         return Ok(Msg(
             lsid=lsid,
-            skip__datacode=code,
-            data=data,
+            skip__bodycode=code,
+            body=body,
             skip__target_connsids=target_connsids))
 
     async def _exec_pub_send_order(self, msg: Msg, opts: PubOpts):
@@ -750,13 +750,13 @@ class ServerBus(Singleton):
 
         if opts.send_to_net:
             await self._pub_msg_to_net(msg)
-        if opts.send_to_inner and msg.skip__datacode in self._code_to_subfns:
+        if opts.send_to_inner and msg.skip__bodycode in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
         if msg.lsid:
             await self._send_as_linked(msg)
 
     async def _send_to_inner_bus(self, msg: Msg):
-        subfns = self._code_to_subfns[msg.skip__datacode]
+        subfns = self._code_to_subfns[msg.skip__bodycode]
         if not subfns:
             return
         for subfn in subfns:
@@ -820,18 +820,18 @@ class ServerBus(Singleton):
                 ctx_manager = (await self._cfg.sub_ctxfn(msg)).eject()
             except Exception as err:
                 await log.atrack(
-                    err, f"rpx ctx manager retrieval for data {msg.data}")
+                    err, f"rpx ctx manager retrieval for body {msg.body}")
                 return
             async with ctx_manager:
-                retval = await subfn(msg.data)
+                retval = await subfn(msg.body)
         else:
-            retval = await subfn(msg.data)
+            retval = await subfn(msg.body)
 
         vals = self._parse_subfn_retval(subfn, retval)
         if not vals:
             return
 
-        # by default all subsriber's data are intended to be linked to
+        # by default all subsriber's body are intended to be linked to
         # initial message, so we attach this message ctx msid
         lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx::msid")
         pub_opts = PubOpts(lsid=lsid)
@@ -844,7 +844,7 @@ class ServerBus(Singleton):
     def _parse_subfn_retval(
             self,
             subfn: SubFn,
-            retval: SubFnRetval) -> Iterable[Mdata]:
+            retval: SubFnRetval) -> Iterable[Mbody]:
         # unpack here, though it can be done inside pub(), but we want to
         # process iterables here
         if isinstance(retval, Ok):
@@ -879,28 +879,28 @@ class ServerBus(Singleton):
         ctx_dict = _rxcat_ctx.get().copy()
         ctx_dict["subfn__lsid"] = lsid
 
-    def _check_norpc_mdata(
-            self, data: Mdata | type[Mdata], disp_ctx: str) -> Res[None]:
+    def _check_norpc_mbody(
+            self, body: Mbody | type[Mbody], disp_ctx: str) -> Res[None]:
         """
         Since rpc msgs cannot participate in actions like "sub" and "pub",
         we have a separate fn to check this.
         """
-        iscls = isclass(data)
+        iscls = isclass(body)
         if (
             (
                 iscls
-                and (issubclass(data, SrpcSend) or issubclass(data, SrpcRecv)))
+                and (issubclass(body, SrpcSend) or issubclass(body, SrpcRecv)))
             or (
                 not iscls
-                and (isinstance(data, (SrpcSend, SrpcRecv))))):
+                and (isinstance(body, (SrpcSend, SrpcRecv))))):
             return Err(ValErr(
-                f"mdata {data} in context of \"{disp_ctx}\" cannot be"
+                f"mbody {body} in context of \"{disp_ctx}\" cannot be"
                 " associated with rpc"))
         return Ok(None)
 
     def _apply_opts_to_subfn(
             self, subfn: SubFn, opts: SubOpts) -> SubFn:
-        async def wrapper(data: Mdata) -> Any:
+        async def wrapper(body: Mbody) -> Any:
             # globals are applied before locals
             inp_filters = [
                 *(self._cfg.global_subfn_inp_filters or []),
@@ -916,24 +916,24 @@ class ServerBus(Singleton):
             ]
 
             for f in inp_filters:
-                data = await f(data)
-                if isinstance(data, InterruptPipeline):
-                    return data.data
+                body = await f(body)
+                if isinstance(body, InterruptPipeline):
+                    return body.body
 
             for f in conditions:
-                f_out = await f(data)
+                flag = await f(body)
                 # if any condition fails, skip the subfn
-                if not f_out:
+                if not flag:
                     return SkipMe()
 
-            retdata = await subfn(data)
+            retbody = await subfn(body)
 
             for f in out_filters:
-                retdata = await f(retdata)
-                if isinstance(retdata, InterruptPipeline):
-                    return retdata.data
+                retbody = await f(retbody)
+                if isinstance(retbody, InterruptPipeline):
+                    return retbody.body
 
-            return retdata
+            return retbody
         return wrapper
 
     async def _receive_from_conn(
@@ -991,12 +991,12 @@ class ServerBus(Singleton):
             await conn.send(rmsg)
 
     async def _accept_net_msg(self, msg: Msg):
-        if isinstance(msg.data, SrpcRecv):
+        if isinstance(msg.body, SrpcRecv):
             log.err(
                 f"server bus won't accept RpcRecv messages, got {msg}"
                 " => skip")
             return
-        elif isinstance(msg.data, SrpcSend):
+        elif isinstance(msg.body, SrpcSend):
             # process rpc in a separate task to not block inp queue
             # processing
             task = asyncio.create_task(self._call_rpc(msg))
@@ -1012,10 +1012,10 @@ class ServerBus(Singleton):
                     PubOpts(lsid=msg.lsid))).atrack()
 
     async def _call_rpc(self, msg: Msg):
-        data = msg.data
-        code, _ = data.key.split(":")
+        body = msg.body
+        code, _ = body.key.split(":")
         if code not in self._rpccode_to_fn:
-            log.err(f"no such rpc code {code} for req {data} => skip")
+            log.err(f"no such rpc code {code} for req {body} => skip")
             return
         fn, args_type = self._rpccode_to_fn[code]
 
@@ -1024,21 +1024,21 @@ class ServerBus(Singleton):
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:
             try:
-                ctx_manager = (await self._cfg.rpc_ctxfn(data)).eject()
+                ctx_manager = (await self._cfg.rpc_ctxfn(body)).eject()
             except Exception as err:
                 await log.atrack(
                     err,
-                    f"rpx ctx manager retrieval for data {data} => skip")
+                    f"rpx ctx manager retrieval for body {body} => skip")
                 return
         try:
             if ctx_manager:
                 async with ctx_manager:
-                    res = await fn(args_type.model_validate(data.args))
+                    res = await fn(args_type.model_validate(body.args))
             else:
-                res = await fn(args_type.model_validate(data.args))
+                res = await fn(args_type.model_validate(body.args))
         except Exception as err:
             await log.atrack(
-                err, f"rpcfn on req {data} => wrap to usual RpcRecv")
+                err, f"rpcfn on req {body} => wrap to usual RpcRecv")
             res = Err(err)
 
         val: Any
@@ -1049,7 +1049,7 @@ class ServerBus(Singleton):
             val = typing.cast(ErrDto, val).model_dump(exclude={"stacktrace"})
         else:
             log.err(
-                f"rpcfn on req {data} returned non-res val {res} => skip")
+                f"rpcfn on req {body} returned non-res val {res} => skip")
             return
 
         # val must be any serializable by pydantic object, so here we pass it
@@ -1058,9 +1058,9 @@ class ServerBus(Singleton):
         evt = Msg(
             lsid=msg.sid,
             skip__target_connsids=[msg.skip__connsid],
-            skip__datacode=SrpcRecv.code(),
-            data=SrpcRecv(
-                key=data.key,
+            skip__bodycode=SrpcRecv.code(),
+            body=SrpcRecv(
+                key=body.key,
                 val=val))
         # we publish directly to the net since inner participants can't
         # subscribe to this
@@ -1114,8 +1114,8 @@ class ServerBus(Singleton):
         codes = codes_res.okval
         welcome = Welcome(codes=codes)
         self._preserialized_welcome_msg = (await Msg(
-            skip__datacode=Welcome.code(),
-            data=welcome).serialize_to_net()).eject()
+            skip__bodycode=Welcome.code(),
+            body=welcome).serialize_to_net()).eject()
         rewelcome_res = await self._rewelcome_all_conns()
         if isinstance(rewelcome_res, Err):
             return rewelcome_res

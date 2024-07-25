@@ -11,7 +11,7 @@ from pykit.uuid import uuid4
 from rxcat import (
     ConnArgs,
     InterruptPipeline,
-    Mdata,
+    Mbody,
     PubList,
     PubOpts,
     ServerBus,
@@ -31,9 +31,9 @@ from tests.conftest import (
 async def test_pubsub(sbus: ServerBus):
     flag = False
 
-    async def sub__mock_1(data: Mock_1):
-        assert isinstance(data, Mock_1)
-        assert data.num == 1
+    async def sub__mock_1(body: Mock_1):
+        assert isinstance(body, Mock_1)
+        assert body.num == 1
         nonlocal flag
         flag = True
 
@@ -50,9 +50,9 @@ async def test_data_static_indexes(sbus: ServerBus):
 async def test_pubsub_err(sbus: ServerBus):
     flag = False
 
-    async def sub__test(data: ValErr):
-        assert type(data) is ValErr
-        assert get_err_msg(data) == "hello"
+    async def sub__test(body: ValErr):
+        assert type(body) is ValErr
+        assert get_err_msg(body) == "hello"
         nonlocal flag
         flag = True
 
@@ -61,9 +61,9 @@ async def test_pubsub_err(sbus: ServerBus):
     assert flag
 
 async def test_pubr(sbus: ServerBus):
-    async def sub__test(data: ValErr):
-        assert type(data) is ValErr
-        assert get_err_msg(data) == "hello"
+    async def sub__test(body: ValErr):
+        assert type(body) is ValErr
+        assert get_err_msg(body) == "hello"
         return Ok(Mock_1(num=1))
 
     (await sbus.sub(sub__test)).eject()
@@ -76,7 +76,7 @@ async def test_lsid_net(sbus: ServerBus):
     """
     Tests correctness of published back to net responses.
     """
-    async def sub__test(data: Mock_1):
+    async def sub__test(body: Mock_1):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
     await sbus.sub(sub__test)
@@ -86,8 +86,8 @@ async def test_lsid_net(sbus: ServerBus):
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
-        "data": {
+        "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "body": {
             "num": 1
         }
     })
@@ -95,7 +95,7 @@ async def test_lsid_net(sbus: ServerBus):
     count = 0
     while not conn.out_queue.empty():
         response = await asyncio.wait_for(conn.client__recv(), 1)
-        response_data = response["data"]
+        response_data = response["body"]
         count += 1
         if count == 1:
             assert response_data["num"] == 2
@@ -111,7 +111,7 @@ async def test_recv_empty_data(sbus: ServerBus):
     """
     Should validate empty data rmsg, or data set to None to empty base models
     """
-    async def sub__test(data: EmptyMock):
+    async def sub__test(body: EmptyMock):
         return
 
     await sbus.sub(sub__test)
@@ -121,10 +121,10 @@ async def test_recv_empty_data(sbus: ServerBus):
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
+        "bodycodeid": (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert response["datacodeid"] == StaticCodeid.Ok
+    assert response["bodycodeid"] == StaticCodeid.Ok
 
     conn_task.cancel()
 
@@ -132,7 +132,7 @@ async def test_send_empty_data(sbus: ServerBus):
     """
     Should validate empty data rmsg, or data set to None to empty base models
     """
-    async def sub__test(data: Mock_1):
+    async def sub__test(body: Mock_1):
         return Ok(EmptyMock())
 
     await sbus.sub(sub__test)
@@ -142,27 +142,27 @@ async def test_send_empty_data(sbus: ServerBus):
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
-        "data": {
+        "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "body": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
     assert \
-        response["datacodeid"] \
+        response["bodycodeid"] \
         == (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     assert "data" not in response
 
     conn_task.cancel()
 
 async def test_global_subfn_conditions():
-    async def condition(data: Mdata) -> bool:
+    async def condition(data: Mbody) -> bool:
         return data.num == 0
 
     flag = False
-    async def sub__test(data: Mock_1):
+    async def sub__test(body: Mock_1):
         # only mocks with num=0 should be passed
-        assert data.num == 0
+        assert body.num == 0
         nonlocal flag
         assert not flag
         flag = True
@@ -192,7 +192,7 @@ async def test_auth_example():
         def code():
             return "logout"
 
-    async def ifilter__auth(data: Mdata) -> Mdata:
+    async def ifilter__auth(data: Mbody) -> Mbody:
         sbus = ServerBus.ie()
         connsid_res = sbus.get_ctx_connsid()
         # skip inner messages
@@ -206,16 +206,16 @@ async def test_auth_example():
             return InterruptPipeline(ValErr("forbidden"))
         return data
 
-    async def sub__login(data: Login):
-        if data.username == "right":
+    async def sub__login(body: Login):
+        if body.username == "right":
             ServerBus.ie().set_ctx_conn_tokens(["right"])
             return None
-        return valerr(f"wrong username {data.username}")
+        return valerr(f"wrong username {body.username}")
 
-    async def sub__logout(data: Logout):
+    async def sub__logout(body: Logout):
         ServerBus.ie().set_ctx_conn_tokens([])
 
-    async def sub__mock_1(data: Mock_1):
+    async def sub__mock_1(body: Mock_1):
         return
 
     sbus = ServerBus.ie()
@@ -239,65 +239,65 @@ async def test_auth_example():
     conn_task = asyncio.create_task(sbus.conn(conn))
 
     await asyncio.wait_for(conn.client__recv(), 1)
-    mock_1_datacodeid = (await Code.get_regd_codeid_by_type(Mock_1)).eject()
-    valerr_datacodeid = (await Code.get_regd_codeid_by_type(ValErr)).eject()
-    login_datacodeid = (await Code.get_regd_codeid_by_type(Login)).eject()
-    logout_datacodeid = (await Code.get_regd_codeid_by_type(Logout)).eject()
+    mock_1_bodycodeid = (await Code.get_regd_codeid_by_type(Mock_1)).eject()
+    valerr_bodycodeid = (await Code.get_regd_codeid_by_type(ValErr)).eject()
+    login_bodycodeid = (await Code.get_regd_codeid_by_type(Login)).eject()
+    logout_bodycodeid = (await Code.get_regd_codeid_by_type(Logout)).eject()
 
     # unregistered mock_1
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": mock_1_datacodeid,
-        "data": {
+        "bodycodeid": mock_1_bodycodeid,
+        "body": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert response["datacodeid"] == valerr_datacodeid
-    assert response["data"]["msg"] == "forbidden"
+    assert response["bodycodeid"] == valerr_bodycodeid
+    assert response["body"]["msg"] == "forbidden"
 
     # register wrong username
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": login_datacodeid,
-        "data": {
+        "bodycodeid": login_bodycodeid,
+        "body": {
             "username": "wrong"
         }
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert response["datacodeid"] == valerr_datacodeid
-    assert response["data"]["msg"] == "wrong username wrong"
+    assert response["bodycodeid"] == valerr_bodycodeid
+    assert response["body"]["msg"] == "wrong username wrong"
 
     # register right username
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": login_datacodeid,
-        "data": {
+        "bodycodeid": login_bodycodeid,
+        "body": {
             "username": "right"
         }
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert response["datacodeid"] == StaticCodeid.Ok
+    assert response["bodycodeid"] == StaticCodeid.Ok
     assert "right" in conn.get_tokens(), "does not contain registered token"
 
     # registered mock_1
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": mock_1_datacodeid,
-        "data": {
+        "bodycodeid": mock_1_bodycodeid,
+        "body": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert response["datacodeid"] == StaticCodeid.Ok
+    assert response["bodycodeid"] == StaticCodeid.Ok
 
     # logout
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": logout_datacodeid
+        "bodycodeid": logout_bodycodeid
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert response["datacodeid"] == StaticCodeid.Ok
+    assert response["bodycodeid"] == StaticCodeid.Ok
     assert not conn.get_tokens()
 
     conn_task.cancel()
@@ -309,7 +309,7 @@ async def test_sub_decorator():
             return "mock"
 
     @sub
-    def sub__t(data: Mock) -> Any:
+    def sub__t(body: Mock) -> Any:
         return
 
     sbus = ServerBus.ie()

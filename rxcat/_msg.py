@@ -8,14 +8,11 @@ from pykit.log import log
 from pykit.res import Err, Ok, Res, resultify
 from pykit.uuid import uuid4
 
-TMdata_contra = TypeVar("TMdata_contra", contravariant=True)
-Mdata = Any
+TMbody_contra = TypeVar("TMbody_contra", contravariant=True)
+Mbody = Any
 """
-Any custom data bus user interested in. Must be serializable and implement
+Any custom body bus user interested in. Must be serializable and implement
 `code() -> str` method.
-
-To represent basic types without the need of modifying them with code
-signature, use CodedMsgData.
 """
 
 class Msg(BaseModel):
@@ -27,7 +24,7 @@ class Msg(BaseModel):
     Fields prefixed with "skip__" won't pass net serialization process.
 
     Msgs are internal to rxcat implementation. The bus user is only interested
-    in the actual data he is operating on, and which connections they are
+    in the actual body he is operating on, and which connections they are
     operating with. And the Msg is just an underlying container for that.
     """
     sid: str = ""
@@ -51,22 +48,22 @@ class Msg(BaseModel):
     To which connsids the published msg should be addressed.
     """
 
-    # since we won't change data type for an existing message, we keep
-    # code with the data. Also it's placed here and not in ``data`` to not
+    # since we won't change body type for an existing message, we keep
+    # code with the body. Also it's placed here and not in ``body`` to not
     # interfere with custom fields, and for easier access
-    skip__datacode: str
+    skip__bodycode: str
     """
-    Code of msg's data.
+    Code of msg's body.
     """
-    data: Mdata
+    body: Mbody
 
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, **data):
-        if "sid" not in data:
-            data["sid"] = uuid4()
-        super().__init__(**data)
+    def __init__(self, **body):
+        if "sid" not in body:
+            body["sid"] = uuid4()
+        super().__init__(**body)
 
     def __hash__(self) -> int:
         assert self.sid
@@ -77,18 +74,18 @@ class Msg(BaseModel):
     async def serialize_to_net(self) -> Res[dict]:
         final = self.model_dump()
 
-        data = final["data"]
+        body = final["body"]
         # serialize exception to errdto
-        if isinstance(data, Exception):
-            err_dto_res = await create_err_dto(data)
+        if isinstance(body, Exception):
+            err_dto_res = await create_err_dto(body)
             if isinstance(err_dto_res, Err):
                 return err_dto_res
-            data = err_dto_res.okval.model_dump(exclude={"stacktrace"})
+            body = err_dto_res.okval.model_dump(exclude={"stacktrace"})
 
-        codeid_res = await Code.get_regd_codeid(self.skip__datacode)
+        codeid_res = await Code.get_regd_codeid(self.skip__bodycode)
         if isinstance(codeid_res, Err):
             return codeid_res
-        final["datacodeid"] = codeid_res.okval
+        final["bodycodeid"] = codeid_res.okval
 
         if "skip__connsid" in final and final["skip__connsid"] is not None:
             # connsids must exist only inside server bus, it's probably an err
@@ -104,17 +101,17 @@ class Msg(BaseModel):
         for k in keys_to_del:
             del final[k]
 
-        final["data"] = data
-        if not data and "data" in final:
-            del final["data"]
+        final["body"] = body
+        if not body and "body" in final:
+            del final["body"]
         return Ok(final)
 
     @classmethod
     async def _parse_rmsg_code(cls, rmsg: dict) -> Res[str]:
-        if "datacodeid" not in rmsg:
-            return Err(ValErr(f"data {rmsg} must have \"codeid\" field"))
-        codeid = rmsg["datacodeid"]
-        del rmsg["datacodeid"]
+        if "bodycodeid" not in rmsg:
+            return Err(ValErr(f"msg {rmsg} must have \"codeid\" field"))
+        codeid = rmsg["bodycodeid"]
+        del rmsg["bodycodeid"]
         if not isinstance(codeid, int):
             return Err(ValErr(
                 f"invalid type of codeid {codeid}, expected int"))
@@ -129,10 +126,10 @@ class Msg(BaseModel):
         return Ok(code)
 
     @classmethod
-    def _get_keys_to_del_from_serialized(cls, data: dict) -> list[str]:
+    def _get_keys_to_del_from_serialized(cls, body: dict) -> list[str]:
         keys_to_del: list[str] = []
         is_msid_found = False
-        for k, v in data.items():
+        for k, v in body.items():
             if k == "sid":
                 is_msid_found = True
                 continue
@@ -143,19 +140,19 @@ class Msg(BaseModel):
                     or k.startswith(("internal__", "skip__"))):
                 keys_to_del.append(k)
         if not is_msid_found:
-            raise ValueError(f"no sid field for rmsg {data}")
+            raise ValueError(f"no sid field for rmsg {body}")
         return keys_to_del
 
     @classmethod
-    async def _parse_rmsg_data(cls, rmsg: dict) -> Res[Mdata]:
-        data = rmsg.get("data", None)
+    async def _parse_rmsg_body(cls, rmsg: dict) -> Res[Mbody]:
+        body = rmsg.get("body", None)
 
         code_res = await cls._parse_rmsg_code(rmsg)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
 
-        rmsg["skip__datacode"] = code
+        rmsg["skip__bodycode"] = code
 
         custom_type_res = await Code.get_regd_type_by_code(code)
         if isinstance(custom_type_res, Err):
@@ -165,40 +162,40 @@ class Msg(BaseModel):
         deserialize_custom = getattr(custom_type, "deserialize", None)
         final_deserialize_fn: Callable[[], Any]
         if issubclass(custom_type, BaseModel):
-            # for case of rmsg with empty data field, we'll try to initialize
+            # for case of rmsg with empty body field, we'll try to initialize
             # the type without any fields (empty dict)
-            if data is None:
-                data = {}
-            elif not isinstance(data, dict):
+            if body is None:
+                body = {}
+            elif not isinstance(body, dict):
                 return Err(ValErr(
-                    f"if custom type ({custom_type}) is a BaseModel, data"
-                    f" {data} must be a dict, got type {type(data)}"))
-            final_deserialize_fn = lambda: custom_type(**data)
+                    f"if custom type ({custom_type}) is a BaseModel, body"
+                    f" {body} must be a dict, got type {type(body)}"))
+            final_deserialize_fn = lambda: custom_type(**body)
         elif deserialize_custom is not None:
-            final_deserialize_fn = lambda: deserialize_custom(data)
+            final_deserialize_fn = lambda: deserialize_custom(body)
         else:
-            # for arbitrary types: just pass data as init first arg
-            final_deserialize_fn = lambda: custom_type(data)
+            # for arbitrary types: just pass body as init first arg
+            final_deserialize_fn = lambda: custom_type(body)
 
         return resultify(final_deserialize_fn)
 
     @classmethod
     async def deserialize_from_net(cls, rmsg: dict) -> Res[Self]:
         """Recovers model of this class using dictionary."""
-        # parse mdata separately according to it's regd type
-        data_res = await cls._parse_rmsg_data(rmsg)
-        if isinstance(data_res, Err):
-            return data_res
-        data = data_res.okval
+        # parse body separately according to it's regd type
+        body_res = await cls._parse_rmsg_body(rmsg)
+        if isinstance(body_res, Err):
+            return body_res
+        body = body_res.okval
 
         if "lsid" not in rmsg:
             rmsg["lsid"] = None
 
         rmsg = rmsg.copy()
         # don't do redundant serialization of Any type
-        rmsg["data"] = None
+        rmsg["body"] = None
         model = cls.model_validate(rmsg.copy())
-        model.data = data
+        model.body = body
         return Ok(model)
 
 TMsg = TypeVar("TMsg", bound=Msg)
@@ -218,22 +215,3 @@ class Welcome(BaseModel):
     @staticmethod
     def code() -> str:
         return "rxcat__welcome"
-
-class Reg(BaseModel):
-    tokens: list[str]
-    """
-    Client's list of token to manage signed connection.
-
-    Can be empty. The bus does not decide how to operate over the client's
-    connection based on tokens, the resource server does, to which these
-    tokens are passed.
-    """
-
-    data: dict[str, Any] | None = None
-    """
-    Extra client data passed to the resource server.
-    """
-
-    @staticmethod
-    def code() -> str:
-        return "rxcat__reg"
