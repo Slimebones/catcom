@@ -18,7 +18,7 @@ from rxcat import (
     ServerBusCfg,
     StaticCodeid,
     Transport,
-    sub
+    sub,
 )
 from tests.conftest import (
     EmptyMock,

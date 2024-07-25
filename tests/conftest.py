@@ -1,5 +1,5 @@
 import asyncio
-from asyncio import Queue, Server
+from asyncio import Queue
 from contextvars import ContextVar
 from typing import Self
 
