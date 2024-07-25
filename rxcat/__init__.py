@@ -92,7 +92,7 @@ class SubFn(Protocol, Generic[TMdata_contra]):
     async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
 
 def sub(target: SubFn):
-    ServerBus.internal_subfn_queue.append(target)
+    ServerBus.subfn_init_queue.add(target)
     def inner(*args, **kwargs) -> Any:
         return target(*args, **kwargs)
     return inner
@@ -243,6 +243,8 @@ class ServerBusCfg(BaseModel):
     global_subfn_inp_filters: Iterable[MdataFilter] | None = None
     global_subfn_out_filters: Iterable[SubFnRetvalFilter] | None = None
 
+    consider_sub_decorators: bool = True
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -250,9 +252,13 @@ class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
     """
-    internal_subfn_queue: ClassVar[list[SubFn]] = []
+    subfn_init_queue: ClassVar[set[SubFn]] = set()
     """
     Queue of subscription functions to be subscribed on bus's initialization.
+
+    Is not cleared, so after bus recreation, it's no need to reimport all subs.
+
+    Using this queue can be disabled by cfg.consider_sub_decorators.
     """
     _rpccode_to_fn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
     DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
@@ -371,9 +377,9 @@ class ServerBus(Singleton):
             *reg_types
         ])).eject()
 
-        for subfn in self.internal_subfn_queue:
-            (await self.sub(subfn)).eject()
-        self.internal_subfn_queue.clear()
+        if self._cfg.consider_sub_decorators:
+            for subfn in self.subfn_init_queue:
+                (await self.sub(subfn)).eject()
 
     @property
     def is_initd(self) -> bool:
@@ -546,7 +552,7 @@ class ServerBus(Singleton):
         code = code_res.okval
 
         if not Code.has_code(code):
-            return valerr(f"code {code} is not regd")
+            return valerr(f"code \"{code}\" is not regd")
 
         if code not in self._code_to_subfns:
             self._code_to_subfns[code] = []

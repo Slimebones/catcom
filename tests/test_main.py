@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 from pydantic import BaseModel
 from pykit.code import Code
@@ -17,6 +18,7 @@ from rxcat import (
     ServerBusCfg,
     StaticCodeid,
     Transport,
+    sub
 )
 from tests.conftest import (
     EmptyMock,
@@ -300,5 +302,16 @@ async def test_auth_example():
 
     conn_task.cancel()
 
-def test_sub_decorator():
-    raise NotImplementedError
+async def test_sub_decorator():
+    class Mock(BaseModel):
+        @staticmethod
+        def code():
+            return "mock"
+
+    @sub
+    def sub__t(data: Mock) -> Any:
+        return
+
+    sbus = ServerBus.ie()
+    await sbus.init(ServerBusCfg(reg_types={Mock}))
+    assert Mock.code() in sbus._code_to_subfns  # noqa: SLF001

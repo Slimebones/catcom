@@ -1,5 +1,5 @@
 import asyncio
-from asyncio import Queue
+from asyncio import Queue, Server
 from contextvars import ContextVar
 from typing import Self
 
@@ -38,6 +38,7 @@ class EmptyMock(BaseModel):
 @pytest_asyncio.fixture(autouse=True)
 async def auto():
     yield
+    ServerBus.subfn_init_queue.clear()
     await ServerBus.destroy()
 
 @pytest_asyncio.fixture
