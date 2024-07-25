@@ -122,3 +122,57 @@ async def test_reject():
     assert conn.out_queue.empty()
 
     conn_task.cancel()
+
+async def test_ok():
+    async def reg_fn(
+            connsid: str,
+            tokens: list[str],
+            client_data: dict[str, Any] | None):
+        assert tokens == ["whocares_1", "whocares_2"]
+        assert client_data == {"name": "mark"}
+
+    flag = False
+    async def sub__f(data: Mock_1):
+        nonlocal flag
+        flag = True
+
+    sbus = ServerBus.ie()
+    cfg = ServerBusCfg(
+        transports=[
+            Transport(
+                is_server=True,
+                conn_type=MockConn,
+                is_registration_enabled=True)
+        ],
+        reg_types=[
+            Mock_1,
+            Mock_2
+        ],
+        reg_fn=reg_fn)
+    await asyncio.wait_for(sbus.init(cfg), 1)
+
+    conn = MockConn(ConnArgs(core=None))
+    conn_task = asyncio.create_task(sbus.conn(conn))
+
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": 0,
+        "data": {
+            "tokens": ["whocares_1", "whocares_2"],
+            "data": {
+                "name": "mark"
+            }
+        }
+    })
+    server_reg_evt = await asyncio.wait_for(conn.client__recv(), 1)
+    assert server_reg_evt["datacodeid"] == StaticCodeid.Ok
+
+    welcome = await asyncio.wait_for(conn.client__recv(), 1)
+    assert welcome["datacodeid"] == StaticCodeid.Welcome
+
+    (await sbus.sub(Mock_1, sub__f)).eject()
+    (await sbus.pub(Mock_1(num=1))).eject()
+
+    assert flag
+
+    conn_task.cancel()
