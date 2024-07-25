@@ -135,11 +135,13 @@ class RegFn(Protocol):
     Reg function to be called on client RegReq arrival.
     """
     async def __call__(
-        self,
-        /,
-        connsid: str,
-        tokens: list[str],
-        client_data: dict[str, Any] | None) -> Res[ServerRegData]: ...
+                self,
+                /,
+                connsid: str,
+                tokens: list[str],
+                client_data: dict[str, Any] | None
+            ) -> ServerRegData | RegErr | None:
+        ...
 
 class Internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -283,8 +285,9 @@ class ServerBus(Singleton):
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
         "rxcat__reg",
         "rxcat__server_reg_data",
+        "rxcat__reg_err",
         "rxcat__welcome",
-        "rxcat__reg_err"
+        "rxcat__ok"
     ]
 
     def __init__(self):
@@ -322,10 +325,9 @@ class ServerBus(Singleton):
         (await self.reg_types([
             Reg,
             ServerRegData,
-            Welcome,
             RegErr,
+            Welcome,
             ok,
-            ErrDto,
             SrpcSend,
             SrpcRecv,
             ValErr,
@@ -463,7 +465,7 @@ class ServerBus(Singleton):
 
         try:
             if atransport.transport.is_registration_enabled:
-                (await self._read_conn_reg(conn, atransport)).eject()
+                await self._read_conn_reg(conn, atransport)
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
         except Exception as err:
@@ -901,7 +903,7 @@ class ServerBus(Singleton):
     async def _read_conn_reg(
             self,
             conn: Conn,
-            atransport: ActiveTransport) -> Res[ServerRegData | None]:
+            atransport: ActiveTransport):
         rmsg = await self._receive_from_conn(conn, atransport)
 
         msg_res = await self._parse_rmsg(rmsg, conn)
@@ -912,16 +914,18 @@ class ServerBus(Singleton):
         if not isinstance(msg.data, Reg):
             return valerr(f"first msg data should be Reg, got {msg.data}")
 
-        reg_data_res = Ok(None)
+        reg_data = ok()
         if self._cfg.reg_fn is not None:
-            reg_data_res = await self._cfg.reg_fn(
+            reg_data = await self._cfg.reg_fn(
                 conn.sid, msg.data.tokens, msg.data.data)
+            if reg_data is None:
+                reg_data = ok()
 
-        reg_data: Mdata
-        if isinstance(reg_data_res, Ok):
-            reg_data = reg_data_res.okval
-        if isinstance(reg_data_res, Err):
-            reg_data = reg_data_res.errval
+        if (
+                not type(reg_data) is ServerRegData
+                or not type(reg_data) is ok
+                or not type(reg_data) is RegErr):
+            reg_data = RegErr(f"unexpected retval of regfn {reg_data}")
 
         # push manually to ensure it arrives before
         # the welcome msg, and is not stucking in the queue
@@ -933,7 +937,8 @@ class ServerBus(Singleton):
             .eject()
         await conn.send(serialized)
 
-        return reg_data_res
+        if isinstance(reg_data, RegErr):
+            raise reg_data
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:

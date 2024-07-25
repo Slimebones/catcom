@@ -7,7 +7,7 @@ from pykit.err_utils import create_err_dto
 from pykit.res import Ok, Res, valerr
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, ServerBus, ServerBusCfg, ServerRegData, Transport
+from rxcat import ConnArgs, RegErr, ServerBus, ServerBusCfg, ServerRegData, Transport
 from tests.conftest import Mock_1, Mock_2, MockConn
 
 
@@ -15,10 +15,10 @@ async def test_main():
     async def reg_fn(
             connsid: str,
             tokens: list[str],
-            client_data: dict[str, Any] | None) -> Res[ServerRegData]:
+            client_data: dict[str, Any] | None):
         assert tokens == ["whocares_1", "whocares_2"]
         assert client_data == {"name": "mark"}
-        return Ok(ServerRegData(data={"state": 12}))
+        return ServerRegData(data={"state": 12})
 
     flag = False
     async def sub__f(data: Mock_1):
@@ -57,7 +57,7 @@ async def test_main():
     assert server_reg_evt["datacodeid"] == 1
     assert server_reg_evt["data"]["data"] == {"state": 12}
     welcome = await asyncio.wait_for(conn.client__recv(), 1)
-    assert welcome["datacodeid"] == 2
+    assert welcome["datacodeid"] == 3
 
     (await sbus.sub(Mock_1, sub__f)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
@@ -70,8 +70,8 @@ async def test_reject():
     async def reg_fn(
             connsid: str,
             tokens: list[str],
-            client_data: dict[str, Any] | None) -> Res[ServerRegData]:
-        return valerr("forbidden")
+            client_data: dict[str, Any] | None):
+        return RegErr("forbidden")
 
     sbus = ServerBus.ie()
     cfg = ServerBusCfg(
@@ -104,15 +104,16 @@ async def test_reject():
     reg_data_msg = await asyncio.wait_for(conn.client__recv(), 1)
     assert \
         reg_data_msg["datacodeid"] \
-        == (await Code.get_regd_codeid_by_type(ValErr)).eject()
+        == 2
     reg_data = reg_data_msg["data"]
     assert \
         reg_data \
-        == (await create_err_dto(ValErr("forbidden"))) \
+        == (await create_err_dto(RegErr("forbidden"))) \
             .eject() \
             .model_dump(exclude={"stacktrace"})
 
     await asyncio.sleep(0.1)
     assert conn.is_closed()
+    assert conn.out_queue.empty()
 
     conn_task.cancel()

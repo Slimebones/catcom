@@ -11,8 +11,10 @@ from rxcat import (
     PubList,
     PubOpts,
     ServerBus,
+    ok
 )
 from tests.conftest import (
+    EmptyMock,
     Mock_1,
     Mock_2,
     MockConn,
@@ -37,7 +39,9 @@ async def test_data_static_indexes(sbus: ServerBus):
     codes = (await Code.get_regd_codes()).eject()
     assert codes[0] == "rxcat__reg"
     assert codes[1] == "rxcat__server_reg_data"
-    assert codes[2] == "rxcat__welcome"
+    assert codes[2] == "rxcat__reg_err"
+    assert codes[3] == "rxcat__welcome"
+    assert codes[4] == "ok"
 
 async def test_pubsub_err(sbus: ServerBus):
     flag = False
@@ -96,5 +100,26 @@ async def test_lsid_net(sbus: ServerBus):
         else:
             raise AssertionError
     assert count == 2
+
+    conn_task.cancel()
+
+async def test_empty_data(sbus: ServerBus):
+    """
+    Should validate empty data rmsg, or data set to None to empty base models
+    """
+    async def sub__test(data: EmptyMock):
+        return
+
+    await sbus.sub(EmptyMock, sub__test)
+    conn = MockConn(ConnArgs(core=None))
+    conn_task = asyncio.create_task(sbus.conn(conn))
+
+    await asyncio.wait_for(conn.client__recv(), 1)
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject()
+    })
+    response = await conn.client__recv()
+    assert response["datacodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
 
     conn_task.cancel()

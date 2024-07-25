@@ -30,6 +30,11 @@ class Mock_2(BaseModel):
     def code() -> str:
         return "rxcat__mock_2"
 
+class EmptyMock(BaseModel):
+    @staticmethod
+    def code() -> str:
+        return "rxcat__empty_mock"
+
 @pytest_asyncio.fixture(autouse=True)
 async def auto():
     yield
@@ -47,7 +52,8 @@ async def sbus() -> ServerBus:
         ],
         reg_types=[
             Mock_1,
-            Mock_2
+            Mock_2,
+            EmptyMock
         ])
     await asyncio.wait_for(bus.init(cfg), 1)
     return bus
