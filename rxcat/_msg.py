@@ -99,11 +99,8 @@ class Msg(BaseModel):
                 f" to serialize msg {self} with connsid != None => ignore"
             )
 
-        is_msid_found = False
         keys_to_del = self._get_keys_to_del_from_serialized(final)
 
-        if not is_msid_found:
-            raise ValueError(f"no sid field for rmsg {final}")
         for k in keys_to_del:
             del final[k]
 
@@ -134,6 +131,7 @@ class Msg(BaseModel):
     @classmethod
     def _get_keys_to_del_from_serialized(cls, data: dict) -> list[str]:
         keys_to_del: list[str] = []
+        is_msid_found = False
         for k, v in data.items():
             if k == "sid":
                 is_msid_found = True
@@ -144,6 +142,8 @@ class Msg(BaseModel):
                     v is None
                     or k.startswith(("internal__", "skip__"))):
                 keys_to_del.append(k)
+        if not is_msid_found:
+            raise ValueError(f"no sid field for rmsg {data}")
         return keys_to_del
 
     @classmethod
