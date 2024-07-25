@@ -90,7 +90,6 @@ class Msg(BaseModel):
             return codeid_res
         final["datacodeid"] = codeid_res.okval
 
-        # del server msg fields - we should do these before key deletion setup
         if "skip__connsid" in final and final["skip__connsid"] is not None:
             # connsids must exist only inside server bus, it's probably an err
             # if a msg is tried to be serialized with connsid, but we will
@@ -101,17 +100,7 @@ class Msg(BaseModel):
             )
 
         is_msid_found = False
-        keys_to_del: list[str] = []
-        for k, v in final.items():
-            if k == "sid":
-                is_msid_found = True
-                continue
-            # all internal or skipped keys are deleted from the final
-            # serialization
-            if (
-                    v is None
-                    or k.startswith(("internal__", "skip__"))):
-                keys_to_del.append(k)
+        keys_to_del = self._get_keys_to_del_from_serialized(final)
 
         if not is_msid_found:
             raise ValueError(f"no sid field for rmsg {final}")
@@ -119,6 +108,8 @@ class Msg(BaseModel):
             del final[k]
 
         final["data"] = data
+        if not data and "data" in final:
+            del final["data"]
         return Ok(final)
 
     @classmethod
@@ -139,6 +130,21 @@ class Msg(BaseModel):
             return Err(ValErr(f"unregd code {code}"))
 
         return Ok(code)
+
+    @classmethod
+    def _get_keys_to_del_from_serialized(cls, data: dict) -> list[str]:
+        keys_to_del: list[str] = []
+        for k, v in data.items():
+            if k == "sid":
+                is_msid_found = True
+                continue
+            # all internal or skipped keys are deleted from the final
+            # serialization
+            if (
+                    v is None
+                    or k.startswith(("internal__", "skip__"))):
+                keys_to_del.append(k)
+        return keys_to_del
 
     @classmethod
     async def _parse_rmsg_data(cls, rmsg: dict) -> Res[Mdata]:

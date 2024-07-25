@@ -77,7 +77,7 @@ __all__ = [
     "OnSendFn",
     "OnRecvFn",
 
-    "ErrDto",
+    "PubList"
 ]
 
 class StaticCodeid:

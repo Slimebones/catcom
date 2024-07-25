@@ -97,7 +97,7 @@ async def test_lsid_net(sbus: ServerBus):
 
     conn_task.cancel()
 
-async def test_empty_data(sbus: ServerBus):
+async def test_recv_empty_data(sbus: ServerBus):
     """
     Should validate empty data rmsg, or data set to None to empty base models
     """
@@ -115,5 +115,32 @@ async def test_empty_data(sbus: ServerBus):
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
     assert response["datacodeid"] == StaticCodeid.Ok
+
+    conn_task.cancel()
+
+async def test_send_empty_data(sbus: ServerBus):
+    """
+    Should validate empty data rmsg, or data set to None to empty base models
+    """
+    async def sub__test(data: Mock_1):
+        return Ok(EmptyMock())
+
+    await sbus.sub(Mock_1, sub__test)
+    conn = MockConn(ConnArgs(core=None))
+    conn_task = asyncio.create_task(sbus.conn(conn))
+
+    await asyncio.wait_for(conn.client__recv(), 1)
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "data": {
+            "num": 1
+        }
+    })
+    response = await asyncio.wait_for(conn.client__recv(), 1)
+    assert \
+        response["datacodeid"] \
+        == (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
+    assert "data" not in response
 
     conn_task.cancel()
