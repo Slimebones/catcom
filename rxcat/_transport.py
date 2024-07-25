@@ -12,7 +12,6 @@ from asyncio import Queue, Task
 from typing import Generic, Protocol, Self, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
-from pykit.rand import RandomUtils
 from pykit.uuid import uuid4
 
 TConnCore = TypeVar("TConnCore")

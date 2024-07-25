@@ -9,7 +9,6 @@ import typing
 from asyncio import Queue
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from enum import Enum
 from inspect import isclass, signature
 from typing import (
     Any,
@@ -26,19 +25,18 @@ from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
 from pykit.ptr import Ptr
-from pykit.res import Err, Ok, Res, Result, UnwrapErr, valerr, aresultify
+from pykit.res import Err, Ok, Res, Result, UnwrapErr, aresultify, valerr
 from pykit.singleton import Singleton
 from pykit.uuid import uuid4
 
 from rxcat._msg import (
     Mdata,
     Msg,
-    Reg,
     TMdata_contra,
     Welcome,
     ok,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend, TRpcFn
+from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend
 from rxcat._transport import (
     ActiveTransport,
     Conn,
@@ -317,6 +315,9 @@ class ServerBus(Singleton):
         return _rxcat_ctx.get().copy()
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
+        if self._is_initd:
+            return
+
         self._cfg = cfg
 
         self._init_transports()
@@ -372,6 +373,7 @@ class ServerBus(Singleton):
 
         for subfn in self.internal_subfn_queue:
             (await self.sub(subfn)).eject()
+        self.internal_subfn_queue.clear()
 
     @property
     def is_initd(self) -> bool:
@@ -397,7 +399,7 @@ class ServerBus(Singleton):
         So it's better to be called once and at the start of the program.
         """
         if not self._is_initd:
-            return valerr(f"bus should be initialized")
+            return valerr("bus should be initialized")
         upd_res = await Code.upd(types, self.DEFAULT_CODE_ORDER)
         if isinstance(upd_res, Err):
             return upd_res

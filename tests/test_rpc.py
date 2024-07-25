@@ -9,6 +9,7 @@ from pykit.uuid import uuid4
 
 from rxcat import ConnArgs, ServerBus, srpc
 from tests.conftest import (
+    EmptyMock,
     MockConn,
     find_codeid_in_welcome_rmsg,
 )
@@ -72,9 +73,10 @@ async def test_main(sbus: ServerBus):
 
     conn_task_1.cancel()
 
-@srpc
-async def srpc__test(args: BaseModel) -> Res[Any]:
-    return Ok(None)
-
-def test_srpc_decorator(sbus: ServerBus):
-    assert 0
+async def test_srpc_decorator():
+    @srpc
+    async def srpc__test(args: EmptyMock) -> Res[Any]:
+        return Ok(None)
+    sbus = ServerBus.ie()
+    await sbus.init()
+    assert "srpc__test" in sbus._rpccode_to_fn  # noqa: SLF001

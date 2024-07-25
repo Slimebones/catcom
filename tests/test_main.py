@@ -4,10 +4,20 @@ from pydantic import BaseModel
 from pykit.code import Code
 from pykit.err import ValErr
 from pykit.err_utils import get_err_msg
-from pykit.res import Ok, Err, valerr
+from pykit.res import Err, Ok, valerr
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, InterruptPipeline, PubList, PubOpts, ServerBus, ServerBusCfg, StaticCodeid, Mdata, Transport
+from rxcat import (
+    ConnArgs,
+    InterruptPipeline,
+    Mdata,
+    PubList,
+    PubOpts,
+    ServerBus,
+    ServerBusCfg,
+    StaticCodeid,
+    Transport,
+)
 from tests.conftest import (
     EmptyMock,
     Mock_1,
@@ -197,7 +207,7 @@ async def test_auth_example():
     async def sub__login(data: Login):
         if data.username == "right":
             ServerBus.ie().set_ctx_conn_tokens(["right"])
-            return
+            return None
         return valerr(f"wrong username {data.username}")
 
     async def sub__logout(data: Logout):
@@ -289,3 +299,6 @@ async def test_auth_example():
     assert not conn.get_tokens()
 
     conn_task.cancel()
+
+def test_sub_decorator():
+    raise NotImplementedError
