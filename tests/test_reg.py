@@ -118,7 +118,7 @@ async def test_reject():
             .model_dump(exclude={"stacktrace"})
 
     await asyncio.sleep(0.1)
-    assert conn.is_closed()
+    assert not conn.is_closed()
     assert conn.out_queue.empty()
 
     conn_task.cancel()

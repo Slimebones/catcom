@@ -917,13 +917,10 @@ class ServerBus(Singleton):
             atransport: ActiveTransport):
         rmsg = await self._receive_from_conn(conn, atransport)
 
-        msg_res = await self._parse_rmsg(rmsg, conn)
-        if isinstance(msg_res, Err):
-            return msg_res
-        msg = msg_res.okval
+        msg = (await self._parse_rmsg(rmsg, conn)).eject()
 
         if not isinstance(msg.data, Reg):
-            return valerr(f"first msg data should be Reg, got {msg.data}")
+            raise ValErr(f"first msg data should be Reg, got {msg.data}")
 
         reg_data = ok()
         if self._cfg.reg_fn is not None:

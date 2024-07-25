@@ -13,6 +13,7 @@ from typing import Generic, Protocol, Self, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 from pykit.rand import RandomUtils
+from pykit.uuid import uuid4
 
 TConnCore = TypeVar("TConnCore")
 
@@ -30,7 +31,6 @@ class OnRecvFn(Protocol):
 
 class ConnArgs(BaseModel, Generic[TConnCore]):
     core: TConnCore
-    tokens: set[str] | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -46,30 +46,34 @@ class Conn(Generic[TConnCore]):
     can be conveniently done only through parsed dict object.
     """
     def __init__(self, args: ConnArgs[TConnCore]) -> None:
-        self._sid = RandomUtils.makeid()
+        self._sid = uuid4()
         self._core = args.core
         self._is_closed = False
 
-        self._tokens: set[str] = set()
-        if args.tokens:
-            self._tokens = args.tokens.copy()
-
-    @property
-    def sid(self) -> str:
-        return self._sid
-
-    @property
-    def tokens(self) -> set[str]:
-        return self._tokens.copy()
-
-    def is_closed(self) -> bool:
-        return self._is_closed
+        self._tokens: list[str] = []
 
     def __aiter__(self) -> Self:
         raise NotImplementedError
 
     async def __anext__(self) -> dict:
         raise NotImplementedError
+
+    @property
+    def sid(self) -> str:
+        return self._sid
+
+    def get_tokens(self) -> list[str]:
+        """
+        May also return empty tokens. This would mean that the conn is not yet
+        registered.
+        """
+        return self._tokens.copy()
+
+    def set_tokens(self, tokens: list[str]):
+        self._tokens = tokens.copy()
+
+    def is_closed(self) -> bool:
+        return self._is_closed
 
     async def recv(self) -> dict:
         raise NotImplementedError
