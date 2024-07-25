@@ -93,8 +93,6 @@ class Transport(BaseModel):
     port: int = 0
     route: str = ""
 
-    is_registration_enabled: bool = False
-
     max_inp_queue_size: int = 10000
     """
     If less or equal than zero, no limitation is applied.

@@ -47,8 +47,7 @@ async def sbus() -> ServerBus:
         transports=[
             Transport(
                 is_server=True,
-                conn_type=MockConn,
-                is_registration_enabled=False)
+                conn_type=MockConn)
         ],
         reg_types=[
             Mock_1,

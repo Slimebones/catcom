@@ -3,10 +3,10 @@ import asyncio
 from pykit.code import Code
 from pykit.err import ValErr
 from pykit.err_utils import get_err_msg
-from pykit.res import Ok
+from pykit.res import Ok, Err, valerr
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, PubList, PubOpts, ServerBus, StaticCodeid
+from rxcat import ConnArgs, PubList, PubOpts, ServerBus, ServerBusCfg, StaticCodeid, Mdata, Transport
 from tests.conftest import (
     EmptyMock,
     Mock_1,
@@ -123,6 +123,96 @@ async def test_send_empty_data(sbus: ServerBus):
         return Ok(EmptyMock())
 
     await sbus.sub(Mock_1, sub__test)
+    conn = MockConn(ConnArgs(core=None))
+    conn_task = asyncio.create_task(sbus.conn(conn))
+
+    await asyncio.wait_for(conn.client__recv(), 1)
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "data": {
+            "num": 1
+        }
+    })
+    response = await asyncio.wait_for(conn.client__recv(), 1)
+    assert \
+        response["datacodeid"] \
+        == (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
+    assert "data" not in response
+
+    conn_task.cancel()
+
+async def test_global_subfn_conditions():
+    async def condition(data: Mdata) -> bool:
+        return data.num == 0
+
+    flag = False
+    async def sub__test(data: Mock_1):
+        # only mocks with num=0 should be passed
+        assert data.num == 0
+        nonlocal flag
+        assert not flag
+        flag = True
+
+    sbus = ServerBus.ie()
+    cfg = ServerBusCfg(
+        reg_types={Mock_1},
+        global_subfn_conditions=[condition])
+    await sbus.init(cfg)
+
+    (await sbus.sub(Mock_1, sub__test)).eject()
+    (await sbus.pub(Mock_1(num=1))).eject()
+
+async def test_auth_example():
+    """
+    Should validate empty data rmsg, or data set to None to empty base models
+    """
+    class Login:
+        username: str
+
+    class Logout:
+        pass
+
+    async def condition__auth(data: Mdata) -> bool:
+        sbus = ServerBus.ie()
+        connsid_res = sbus.get_ctx_connsid()
+        # skip inner messages
+        if isinstance(connsid_res, Err) or not connsid_res.okval:
+            return True
+
+        connsid = connsid_res.okval
+        tokens = sbus.get_conn_tokens(connsid).eject()
+        # if data is mock_1, the conn must have tokens
+        return not (isinstance(data, Mock_1) and tokens)
+
+    async def sub__login(data: Login):
+        if data.username == "right":
+            ServerBus.ie().set_ctx_conn_tokens(["right"])
+            return
+        return valerr(f"wrong username {data.username}")
+
+    async def sub__logout(data: Logout):
+        ServerBus.ie().set_ctx_conn_tokens([])
+
+    async def sub__mock_1(data: Mock_1):
+        return Ok(Mock_2(num=2))
+
+    sbus = ServerBus.ie()
+    cfg = ServerBusCfg(
+        transports=[
+            Transport(
+                is_server=True,
+                conn_type=MockConn)
+        ],
+        reg_types={Mock_1, Mock_2, Login, Logout},
+        global_subfn_conditions={condition__auth}
+    )
+    await sbus.init(cfg)
+
+    (await sbus.reg_types({Login, Logout})).eject()
+    (await sbus.sub(Login, sub__login)).eject()
+    (await sbus.sub(Logout, sub__logout)).eject()
+    (await sbus.sub(Mock_1, sub__mock_1)).eject()
     conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(sbus.conn(conn))
 

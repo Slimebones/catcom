@@ -53,7 +53,6 @@ from rxcat._ws import Ws
 __all__ = [
     "ServerBus",
     "SubFn",
-    "RetState",
     "ok",
 
     "ResourceServerErr",
@@ -75,7 +74,9 @@ __all__ = [
     "OnSendFn",
     "OnRecvFn",
 
-    "PubList"
+    "PubList",
+    "InterruptPipeline",
+    "SkipMe"
 ]
 
 class StaticCodeid:
@@ -100,12 +101,15 @@ class PubList(list[Mdata]):
     and each item be published.
     """
 
-class RetState(Enum):
-    SkipMe = 0
+class SkipMe:
     """
     Used by subscribers to prevent any actions on it's retval, since
     returning None will cause bus to publish Ok(None).
     """
+
+class InterruptPipeline:
+    def __init__(self, data: Mdata) -> None:
+        self.data = data
 
 class ResourceServerErr(Exception):
     @staticmethod
@@ -124,7 +128,7 @@ class Internal__BusUnhandledErr(Exception):
             f"bus unhandled err: {err}"
         )
 
-SubFnRetval = Mdata | Iterable[Mdata] | RetState | None
+SubFnRetval = Mdata | Iterable[Mdata] | None
 @runtime_checkable
 class SubFn(Protocol, Generic[TMdata_contra]):
     async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
@@ -184,7 +188,7 @@ class SubOpts(BaseModel):
     If all conditions fail for a subscriber, it is skipped completely
     (returns RetState.SkipMe).
     """
-    in_filters: Iterable[MdataFilter] | None = None
+    inp_filters: Iterable[MdataFilter] | None = None
     out_filters: Iterable[SubFnRetvalFilter] | None = None
 
     warn_unconventional_subfn_names: bool = True
@@ -197,6 +201,10 @@ class CtxManager(Protocol):
     async def __aexit__(self, *args): ...
 
 class ServerBusCfg(BaseModel):
+    """
+    Global subfn functions are applied **before** local ones passed to SubOpts.
+    """
+
     transports: list[Transport] | None = None
     """
     List of available transport mechanisms.
@@ -224,6 +232,10 @@ class ServerBusCfg(BaseModel):
     trace_errs_on_pub: bool = True
     log_net_send: bool = True
     log_net_recv: bool = True
+
+    global_subfn_conditions: Iterable[MdataCondition] | None = None
+    global_subfn_inp_filters: Iterable[MdataFilter] | None = None
+    global_subfn_out_filters: Iterable[SubFnRetvalFilter] | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -265,6 +277,19 @@ class ServerBus(Singleton):
             return valerr(f"no conn with sid {connsid}")
         conn.set_tokens(tokens)
         return Ok(None)
+
+    def get_ctx_conn_tokens(self) -> Res[list[str]]:
+        connsid_res = self.get_ctx_connsid()
+        if isinstance(connsid_res, Err):
+            return connsid_res
+        return self.get_conn_tokens(connsid_res.okval)
+
+    def set_ctx_conn_tokens(
+            self, tokens: list[str]) -> Res[None]:
+        connsid_res = self.get_ctx_connsid()
+        if isinstance(connsid_res, Err):
+            return connsid_res
+        return self.set_conn_tokens(connsid_res.okval, tokens)
 
     async def close_conn(self, connsid: str) -> Res[None]:
         conn = self._sid_to_conn.get(connsid, None)
@@ -356,6 +381,8 @@ class ServerBus(Singleton):
 
         So it's better to be called once and at the start of the program.
         """
+        if not self._is_initd:
+            return valerr(f"bus should be initialized")
         upd_res = await Code.upd(types, self.DEFAULT_CODE_ORDER)
         if isinstance(upd_res, Err):
             return upd_res
@@ -472,16 +499,15 @@ class ServerBus(Singleton):
             Unsubscribe function.
         """
         if (
-            not subfn.__name__.startswith("sub__")  # type: ignore
-            and opts.warn_unconventional_subfn_names):
+                not subfn.__name__.startswith("sub__")  # type: ignore
+                and opts.warn_unconventional_subfn_names):
             log.warn(f"prefix subscription function {subfn} with \"sub__\"")
 
         r = self._check_norpc_mdata(datatype, "subscription")
         if isinstance(r, Err):
             return r
         subsid = uuid4()
-        if opts.conditions:
-            subfn = self._apply_opts_to_subfn(subfn, opts)
+        subfn = self._apply_opts_to_subfn(subfn, opts)
 
         code: str
         if isinstance(datatype, str):
@@ -575,6 +601,9 @@ class ServerBus(Singleton):
         if val:
             return Ok(val)
         return Err(NotFoundErr(f"\"{key}\" entry in rxcat ctx"))
+
+    def get_ctx_connsid(self) -> Res[str]:
+        return self.get_ctx_key("connsid")
 
     async def pub(
             self,
@@ -739,7 +768,7 @@ class ServerBus(Singleton):
         del self._lsid_to_subfn[lsid]
         return True
 
-    def _get_ctx_dict_for_msg(self, msg: Msg) -> dict:
+    def _gen_ctx_dict_for_msg(self, msg: Msg) -> dict:
         ctx_dict = _rxcat_ctx.get().copy()
 
         ctx_dict["msid"] = msg.sid
@@ -754,7 +783,7 @@ class ServerBus(Singleton):
 
         Note that even None response is published as ok(None).
         """
-        _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
+        _rxcat_ctx.set(self._gen_ctx_dict_for_msg(msg))
 
         if self._cfg.sub_ctxfn is not None:
             try:
@@ -768,7 +797,7 @@ class ServerBus(Singleton):
         else:
             retval = await subfn(msg.data)
 
-        vals = self._parse_subfn_retval(retval)
+        vals = self._parse_subfn_retval(subfn, retval)
         if not vals:
             return
 
@@ -783,7 +812,9 @@ class ServerBus(Singleton):
                 f"during subfn {subfn} retval publication")
 
     def _parse_subfn_retval(
-            self, retval: SubFnRetval) -> Iterable[Mdata]:
+            self,
+            subfn: SubFn,
+            retval: SubFnRetval) -> Iterable[Mdata]:
         # unpack here, though it can be done inside pub(), but we want to
         # process iterables here
         if isinstance(retval, Ok):
@@ -791,14 +822,17 @@ class ServerBus(Singleton):
         if isinstance(retval, Err):
             retval = retval.errval
 
-        vals = []
-        if isinstance(retval, RetState):
-            if retval is RetState.SkipMe:
-                return []
-            else:
-                log.err(f"unsupported ret state: {retval}")
-                return []
+        if isinstance(retval, SkipMe):
+            return []
+        if isinstance(retval, InterruptPipeline):
+            log.err(
+                f"retval {retval} cannot be returned from subfn {subfn}")
+            return []
+        if isclass(retval):
+            log.err(f"subfn {subfn} shouldn't return class {retval}")
+            return []
 
+        vals = []
         if isinstance(retval, PubList):
             vals = retval
         else:
@@ -837,21 +871,37 @@ class ServerBus(Singleton):
     def _apply_opts_to_subfn(
             self, subfn: SubFn, opts: SubOpts) -> SubFn:
         async def wrapper(data: Mdata) -> Any:
-            if opts.in_filters:
-                for f in opts.in_filters:
-                    data = await f(data)
+            # globals are applied before locals
+            inp_filters = [
+                *(self._cfg.global_subfn_inp_filters or []),
+                *(opts.inp_filters or [])
+            ]
+            conditions = [
+                *(self._cfg.global_subfn_conditions or []),
+                *(opts.conditions or [])
+            ]
+            out_filters = [
+                *(self._cfg.global_subfn_out_filters or []),
+                *(opts.out_filters or [])
+            ]
 
-            if opts.conditions:
-                for f in opts.conditions:
-                    f_out = await f(data)
-                    if not f_out:
-                        return RetState.SkipMe
+            for f in inp_filters:
+                data = await f(data)
+                if isinstance(data, InterruptPipeline):
+                    return data.data
+
+            for f in conditions:
+                f_out = await f(data)
+                # if any condition fails, skip the subfn
+                if not f_out:
+                    return SkipMe()
 
             retdata = await subfn(data)
 
-            if opts.out_filters:
-                for f in opts.out_filters:
-                    retdata = await f(retdata)
+            for f in out_filters:
+                retdata = await f(retdata)
+                if isinstance(retdata, InterruptPipeline):
+                    return retdata.data
 
             return retdata
         return wrapper
@@ -939,7 +989,7 @@ class ServerBus(Singleton):
             return
         fn, args_type = self._rpccode_to_fn[code]
 
-        _rxcat_ctx.set(self._get_ctx_dict_for_msg(msg))
+        _rxcat_ctx.set(self._gen_ctx_dict_for_msg(msg))
 
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:
