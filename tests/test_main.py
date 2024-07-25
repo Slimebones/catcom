@@ -1,12 +1,13 @@
 import asyncio
 
+from pydantic import BaseModel
 from pykit.code import Code
 from pykit.err import ValErr
 from pykit.err_utils import get_err_msg
 from pykit.res import Ok, Err, valerr
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, PubList, PubOpts, ServerBus, ServerBusCfg, StaticCodeid, Mdata, Transport
+from rxcat import ConnArgs, InterruptPipeline, PubList, PubOpts, ServerBus, ServerBusCfg, StaticCodeid, Mdata, Transport
 from tests.conftest import (
     EmptyMock,
     Mock_1,
@@ -167,23 +168,31 @@ async def test_auth_example():
     """
     Should validate empty data rmsg, or data set to None to empty base models
     """
-    class Login:
+    class Login(BaseModel):
         username: str
 
-    class Logout:
-        pass
+        @staticmethod
+        def code():
+            return "login"
 
-    async def condition__auth(data: Mdata) -> bool:
+    class Logout(BaseModel):
+        @staticmethod
+        def code():
+            return "logout"
+
+    async def ifilter__auth(data: Mdata) -> Mdata:
         sbus = ServerBus.ie()
         connsid_res = sbus.get_ctx_connsid()
         # skip inner messages
         if isinstance(connsid_res, Err) or not connsid_res.okval:
-            return True
+            return data
 
         connsid = connsid_res.okval
         tokens = sbus.get_conn_tokens(connsid).eject()
         # if data is mock_1, the conn must have tokens
-        return not (isinstance(data, Mock_1) and tokens)
+        if isinstance(data, Mock_1) and not tokens:
+            return InterruptPipeline(ValErr("forbidden"))
+        return data
 
     async def sub__login(data: Login):
         if data.username == "right":
@@ -195,7 +204,7 @@ async def test_auth_example():
         ServerBus.ie().set_ctx_conn_tokens([])
 
     async def sub__mock_1(data: Mock_1):
-        return Ok(Mock_2(num=2))
+        return
 
     sbus = ServerBus.ie()
     cfg = ServerBusCfg(
@@ -205,7 +214,7 @@ async def test_auth_example():
                 conn_type=MockConn)
         ],
         reg_types={Mock_1, Mock_2, Login, Logout},
-        global_subfn_conditions={condition__auth}
+        global_subfn_inp_filters={ifilter__auth}
     )
     await sbus.init(cfg)
 
@@ -213,21 +222,70 @@ async def test_auth_example():
     (await sbus.sub(Login, sub__login)).eject()
     (await sbus.sub(Logout, sub__logout)).eject()
     (await sbus.sub(Mock_1, sub__mock_1)).eject()
+
     conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(sbus.conn(conn))
 
     await asyncio.wait_for(conn.client__recv(), 1)
+    mock_1_datacodeid = (await Code.get_regd_codeid_by_type(Mock_1)).eject()
+    valerr_datacodeid = (await Code.get_regd_codeid_by_type(ValErr)).eject()
+    login_datacodeid = (await Code.get_regd_codeid_by_type(Login)).eject()
+    logout_datacodeid = (await Code.get_regd_codeid_by_type(Logout)).eject()
+
+    # unregistered mock_1
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "datacodeid": mock_1_datacodeid,
         "data": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(conn.client__recv(), 1)
-    assert \
-        response["datacodeid"] \
-        == (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
-    assert "data" not in response
+    assert response["datacodeid"] == valerr_datacodeid
+    assert response["data"]["msg"] == "forbidden"
+
+    # register wrong username
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": login_datacodeid,
+        "data": {
+            "username": "wrong"
+        }
+    })
+    response = await asyncio.wait_for(conn.client__recv(), 1)
+    assert response["datacodeid"] == valerr_datacodeid
+    assert response["data"]["msg"] == "wrong username wrong"
+
+    # register right username
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": login_datacodeid,
+        "data": {
+            "username": "right"
+        }
+    })
+    response = await asyncio.wait_for(conn.client__recv(), 1)
+    assert response["datacodeid"] == StaticCodeid.Ok
+    assert "right" in conn.get_tokens(), "does not contain registered token"
+
+    # registered mock_1
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": mock_1_datacodeid,
+        "data": {
+            "num": 1
+        }
+    })
+    response = await asyncio.wait_for(conn.client__recv(), 1)
+    assert response["datacodeid"] == StaticCodeid.Ok
+
+    # logout
+    await conn.client__send({
+        "sid": uuid4(),
+        "datacodeid": logout_datacodeid
+    })
+    response = await asyncio.wait_for(conn.client__recv(), 1)
+    assert response["datacodeid"] == StaticCodeid.Ok
+    assert not conn.get_tokens()
 
     conn_task.cancel()
