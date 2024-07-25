@@ -58,6 +58,7 @@ __all__ = [
 
     "ResourceServerErr",
     "RegFn",
+    "RegErr",
 
     "Mdata",
 
@@ -77,6 +78,15 @@ __all__ = [
 
     "ErrDto",
 ]
+
+class RegErr(Exception):
+    """
+    Use this err in RegFn, so the client can understand it without knowing
+    welcome codes.
+    """
+    @staticmethod
+    def code() -> str:
+        return "rxcat__reg_err"
 
 # placed here and not at _rpc.py to avoid circulars
 def srpc():
@@ -127,6 +137,7 @@ class RegFn(Protocol):
     async def __call__(
         self,
         /,
+        connsid: str,
         tokens: list[str],
         client_data: dict[str, Any] | None) -> Res[ServerRegData]: ...
 
@@ -272,7 +283,8 @@ class ServerBus(Singleton):
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
         "rxcat__reg",
         "rxcat__server_reg_data",
-        "rxcat__welcome"
+        "rxcat__welcome",
+        "rxcat__req_err"
     ]
 
     def __init__(self):
@@ -311,6 +323,7 @@ class ServerBus(Singleton):
             Reg,
             ServerRegData,
             Welcome,
+            RegErr,
             ok,
             ErrDto,
             SrpcSend,
@@ -450,24 +463,17 @@ class ServerBus(Singleton):
 
         try:
             if atransport.transport.is_registration_enabled:
-                reg_data = (
-                    await self._read_first_msg(conn, atransport)).eject()
-                if reg_data:
-                    # push reg msg manually to ensure it arrives before
-                    # the welcome msg, and is not stucking in the queue
-                    reg_data_msg = self._make_msg(
-                        reg_data, PubOpts(target_connsids=[conn.sid])).eject()
-                    serialized = (await reg_data_msg.serialize_to_net()) \
-                        .eject()
-                    await conn.send(serialized)
+                (await self._read_conn_reg(conn, atransport)).eject()
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
+        except Exception as err:
+            await log.atrack(err, f"during conn {conn} main loop => close")
         finally:
-            if not conn.is_closed:
+            if not conn.is_closed():
                 try:
                     await conn.close()
                 except Exception as err:
-                    log.track(err, f"during conn {conn} closing")
+                    await log.atrack(err, f"during conn {conn} closing")
             if conn.sid in self._sid_to_conn:
                 del self._sid_to_conn[conn.sid]
 
@@ -892,7 +898,7 @@ class ServerBus(Singleton):
                 f"inactivity of conn {conn} for transport {atransport}"
             ) from err
 
-    async def _read_first_msg(
+    async def _read_conn_reg(
             self,
             conn: Conn,
             atransport: ActiveTransport) -> Res[ServerRegData | None]:
@@ -906,14 +912,28 @@ class ServerBus(Singleton):
         if not isinstance(msg.data, Reg):
             return valerr(f"first msg data should be Reg, got {msg.data}")
 
-        reg_res = Ok(None)
+        reg_data_res = Ok(None)
         if self._cfg.reg_fn is not None:
-            reg_res = await self._cfg.reg_fn(
-                msg.data.tokens, msg.data.data)
-            if isinstance(reg_res, Err):
-                return reg_res
+            reg_data_res = await self._cfg.reg_fn(
+                conn.sid, msg.data.tokens, msg.data.data)
 
-        return reg_res
+        reg_data: Mdata
+        if isinstance(reg_data_res, Ok):
+            reg_data = reg_data_res.okval
+        if isinstance(reg_data_res, Err):
+            reg_data = reg_data_res.errval
+
+        # push manually to ensure it arrives before
+        # the welcome msg, and is not stucking in the queue
+        #
+        # errs are pushed too, but then the conn loop will close the connection
+        reg_data_msg = self._make_msg(
+            reg_data, PubOpts(target_connsids=[conn.sid])).eject()
+        serialized = (await reg_data_msg.serialize_to_net()) \
+            .eject()
+        await conn.send(serialized)
+
+        return reg_data_res
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:

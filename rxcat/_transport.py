@@ -62,7 +62,6 @@ class Conn(Generic[TConnCore]):
     def tokens(self) -> set[str]:
         return self._tokens.copy()
 
-    @property
     def is_closed(self) -> bool:
         return self._is_closed
 

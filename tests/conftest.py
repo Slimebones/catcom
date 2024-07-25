@@ -71,6 +71,7 @@ class MockConn(Conn[None]):
         await self.out_queue.put(data)
 
     async def close(self):
+        self._is_closed = True
         return
 
     async def client__send(self, data: dict):
