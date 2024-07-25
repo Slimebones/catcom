@@ -11,6 +11,7 @@ from rxcat import (
     PubList,
     PubOpts,
     ServerBus,
+    StaticCodeid,
     ok
 )
 from tests.conftest import (
@@ -120,6 +121,6 @@ async def test_empty_data(sbus: ServerBus):
         "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject()
     })
     response = await conn.client__recv()
-    assert response["datacodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
+    assert response["datacodeid"] == StaticCodeid.Ok
 
     conn_task.cancel()

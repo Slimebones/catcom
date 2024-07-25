@@ -7,7 +7,7 @@ from pykit.err_utils import create_err_dto
 from pykit.res import Ok, Res, valerr
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, RegErr, ServerBus, ServerBusCfg, ServerRegData, Transport
+from rxcat import ConnArgs, RegErr, ServerBus, ServerBusCfg, ServerRegData, StaticCodeid, Transport
 from tests.conftest import Mock_1, Mock_2, MockConn
 
 
@@ -57,7 +57,7 @@ async def test_main():
     assert server_reg_evt["datacodeid"] == 1
     assert server_reg_evt["data"]["data"] == {"state": 12}
     welcome = await asyncio.wait_for(conn.client__recv(), 1)
-    assert welcome["datacodeid"] == 3
+    assert welcome["datacodeid"] == StaticCodeid.Welcome
 
     (await sbus.sub(Mock_1, sub__f)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
@@ -93,7 +93,7 @@ async def test_reject():
 
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": 0,
+        "datacodeid": StaticCodeid.Reg,
         "data": {
             "tokens": ["whocares_1", "whocares_2"],
             "data": {
@@ -104,7 +104,7 @@ async def test_reject():
     reg_data_msg = await asyncio.wait_for(conn.client__recv(), 1)
     assert \
         reg_data_msg["datacodeid"] \
-        == 2
+        == StaticCodeid.RegErr
     reg_data = reg_data_msg["data"]
     assert \
         reg_data \

@@ -67,6 +67,7 @@ __all__ = [
     "SrpcSend",
     "SrpcRecv",
     "EmptyRpcArgs",
+    "StaticCodeid",
 
     "Conn",
     "ConnArgs",
@@ -78,6 +79,16 @@ __all__ = [
 
     "ErrDto",
 ]
+
+class StaticCodeid:
+    """
+    Static codeids defined by Rxcat protocol.
+    """
+    Reg = 0
+    ServerRegData = 1
+    RegErr = 2
+    Welcome = 3
+    Ok = 4
 
 class RegErr(Exception):
     """
