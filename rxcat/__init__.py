@@ -76,7 +76,9 @@ __all__ = [
 
     "PubList",
     "InterruptPipeline",
-    "SkipMe"
+    "SkipMe",
+
+    "sub"
 ]
 
 class StaticCodeid:
@@ -86,11 +88,22 @@ class StaticCodeid:
     Welcome = 0
     Ok = 1
 
+SubFnRetval = Mdata | Iterable[Mdata] | None
+@runtime_checkable
+class SubFn(Protocol, Generic[TMdata_contra]):
+    async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
+
+def sub(target: SubFn):
+    ServerBus.internal_subfn_queue.append(target)
+    def inner(*args, **kwargs) -> Any:
+        return target(*args, **kwargs)
+    return inner
+
 # placed here and not at _rpc.py to avoid circulars
-def srpc():
-    def inner(target: TRpcFn) -> TRpcFn:
-        ServerBus.reg_rpc(target).eject()
-        return target
+def srpc(target: RpcFn):
+    ServerBus.reg_rpc(target).eject()
+    def inner(*args, **kwargs) -> Any:
+        return target(*args, **kwargs)
     return inner
 
 class PubList(list[Mdata]):
@@ -127,11 +140,6 @@ class Internal__BusUnhandledErr(Exception):
         super().__init__(
             f"bus unhandled err: {err}"
         )
-
-SubFnRetval = Mdata | Iterable[Mdata] | None
-@runtime_checkable
-class SubFn(Protocol, Generic[TMdata_contra]):
-    async def __call__(self, data: TMdata_contra) -> SubFnRetval: ...
 
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
@@ -243,6 +251,10 @@ class ServerBusCfg(BaseModel):
 class ServerBus(Singleton):
     """
     Rxcat server bus implementation.
+    """
+    internal_subfn_queue: ClassVar[list[SubFn]] = []
+    """
+    Queue of subscription functions to be subscribed on bus's initialization.
     """
     _rpccode_to_fn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
     DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
@@ -357,6 +369,9 @@ class ServerBus(Singleton):
                 val=AttributeError),
             *reg_types
         ])).eject()
+
+        for subfn in self.internal_subfn_queue:
+            (await self.sub(subfn)).eject()
 
     @property
     def is_initd(self) -> bool:
@@ -475,9 +490,19 @@ class ServerBus(Singleton):
             if conn.sid in self._sid_to_conn:
                 del self._sid_to_conn[conn.sid]
 
+    def _get_datatype_from_subfn(
+            self, subfn: SubFn[TMdata_contra]) -> Res[type[TMdata_contra]]:
+        sig = signature(subfn)
+        params = list(sig.parameters.values())
+        if len(params) != 1:
+            return valerr(
+                f"subfn {subfn} must accept one argument, got {len(params)}")
+        param = params[0]
+        assert isclass(param.annotation)
+        return Ok(param.annotation)
+
     async def sub(
         self,
-        datatype: type[TMdata_contra] | str,
         subfn: SubFn[TMdata_contra],
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable]:
@@ -488,16 +513,18 @@ class ServerBus(Singleton):
         called.
 
         Args:
-            datatype:
-                Data implementing ``code() -> str`` method or direct code
-                to subscribe to.
-            fn:
+            subfn:
                 Function to fire once the messsage has arrived.
             opts (optional):
                 Subscription options.
         Returns:
             Unsubscribe function.
         """
+        datatype_res = self._get_datatype_from_subfn(subfn)
+        if isinstance(datatype_res, Err):
+            return datatype_res
+        datatype = datatype_res.okval
+
         if (
                 not subfn.__name__.startswith("sub__")  # type: ignore
                 and opts.warn_unconventional_subfn_names):
@@ -509,17 +536,12 @@ class ServerBus(Singleton):
         subsid = uuid4()
         subfn = self._apply_opts_to_subfn(subfn, opts)
 
-        code: str
-        if isinstance(datatype, str):
-            code = datatype
-            validate_res = Code.validate(code)
-            if isinstance(validate_res, Err):
-                return validate_res
-        else:
-            code_res = Code.get_from_type(datatype)
-            if isinstance(code_res, Err):
-                return code_res
-            code = code_res.okval
+        if not isclass(datatype):
+            return valerr(f"datatype {datatype} should be a class")
+        code_res = Code.get_from_type(datatype)
+        if isinstance(code_res, Err):
+            return code_res
+        code = code_res.okval
 
         if not Code.has_code(code):
             return valerr(f"code {code} is not regd")

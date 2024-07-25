@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 from pydantic import BaseModel
 from pykit.code import get_fqname
@@ -6,7 +7,7 @@ from pykit.err import ValErr
 from pykit.res import Err, Ok, Res
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, ServerBus
+from rxcat import ConnArgs, ServerBus, srpc
 from tests.conftest import (
     MockConn,
     find_codeid_in_welcome_rmsg,
@@ -70,3 +71,10 @@ async def test_main(sbus: ServerBus):
     assert val["name"] == get_fqname(ValErr())
 
     conn_task_1.cancel()
+
+@srpc
+async def srpc__test(args: BaseModel) -> Res[Any]:
+    return Ok(None)
+
+def test_srpc_decorator(sbus: ServerBus):
+    assert 0

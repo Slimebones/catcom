@@ -27,7 +27,7 @@ async def test_subfn(sbus: ServerBus):
     async def f(data: Mock_1):
         assert sbus.get_ctx()["connsid"] == conn.sid
 
-    await sbus.sub(Mock_1, f)
+    await sbus.sub(f)
     conn_task = asyncio.create_task(sbus.conn(conn))
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
@@ -76,7 +76,7 @@ async def test_sub_custom_ctx_manager():
     async def sub__f(data: Mock_1):
         assert rxcat_mock_ctx.get()["name"] == "hello"
 
-    await sbus.sub(Mock_1, sub__f)
+    await sbus.sub(sub__f)
     await sbus.pubr(Mock_1(num=1))
 
 async def test_rpc_custom_ctx_manager():

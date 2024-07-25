@@ -25,7 +25,7 @@ async def test_pubsub(sbus: ServerBus):
         nonlocal flag
         flag = True
 
-    (await sbus.sub(Mock_1, sub__mock_1)).eject()
+    (await sbus.sub(sub__mock_1)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
 
     assert flag
@@ -44,7 +44,7 @@ async def test_pubsub_err(sbus: ServerBus):
         nonlocal flag
         flag = True
 
-    (await sbus.sub(ValErr, sub__test)).eject()
+    (await sbus.sub(sub__test)).eject()
     (await sbus.pub(ValErr("hello"))).eject()
     assert flag
 
@@ -54,7 +54,7 @@ async def test_pubr(sbus: ServerBus):
         assert get_err_msg(data) == "hello"
         return Ok(Mock_1(num=1))
 
-    (await sbus.sub(ValErr, sub__test)).eject()
+    (await sbus.sub(sub__test)).eject()
     response = (await sbus.pubr(
         ValErr("hello"), PubOpts(pubr__timeout=1))).eject()
     assert type(response) is Mock_1
@@ -67,7 +67,7 @@ async def test_lsid_net(sbus: ServerBus):
     async def sub__test(data: Mock_1):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
-    await sbus.sub(Mock_1, sub__test)
+    await sbus.sub(sub__test)
     conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(sbus.conn(conn))
 
@@ -102,7 +102,7 @@ async def test_recv_empty_data(sbus: ServerBus):
     async def sub__test(data: EmptyMock):
         return
 
-    await sbus.sub(EmptyMock, sub__test)
+    await sbus.sub(sub__test)
     conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(sbus.conn(conn))
 
@@ -123,7 +123,7 @@ async def test_send_empty_data(sbus: ServerBus):
     async def sub__test(data: Mock_1):
         return Ok(EmptyMock())
 
-    await sbus.sub(Mock_1, sub__test)
+    await sbus.sub(sub__test)
     conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(sbus.conn(conn))
 
@@ -161,7 +161,7 @@ async def test_global_subfn_conditions():
         global_subfn_conditions=[condition])
     await sbus.init(cfg)
 
-    (await sbus.sub(Mock_1, sub__test)).eject()
+    (await sbus.sub(sub__test)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
 
 async def test_auth_example():
@@ -219,9 +219,9 @@ async def test_auth_example():
     await sbus.init(cfg)
 
     (await sbus.reg_types({Login, Logout})).eject()
-    (await sbus.sub(Login, sub__login)).eject()
-    (await sbus.sub(Logout, sub__logout)).eject()
-    (await sbus.sub(Mock_1, sub__mock_1)).eject()
+    (await sbus.sub(sub__login)).eject()
+    (await sbus.sub(sub__logout)).eject()
+    (await sbus.sub(sub__mock_1)).eject()
 
     conn = MockConn(ConnArgs(core=None))
     conn_task = asyncio.create_task(sbus.conn(conn))
