@@ -26,7 +26,7 @@ from pykit.err import AlreadyProcessedErr, ErrDto, NotFoundErr, ValErr
 from pykit.err_utils import create_err_dto
 from pykit.log import log
 from pykit.ptr import Ptr
-from pykit.res import Err, Ok, Res, Result, UnwrapErr, valerr
+from pykit.res import Err, Ok, Res, Result, UnwrapErr, valerr, aresultify
 from pykit.singleton import Singleton
 from pykit.uuid import uuid4
 
@@ -57,8 +57,6 @@ __all__ = [
     "ok",
 
     "ResourceServerErr",
-    "RegFn",
-    "RegErr",
 
     "Mdata",
 
@@ -84,20 +82,8 @@ class StaticCodeid:
     """
     Static codeids defined by Rxcat protocol.
     """
-    Reg = 0
-    ServerRegData = 1
-    RegErr = 2
-    Welcome = 3
-    Ok = 4
-
-class RegErr(Exception):
-    """
-    Use this err in RegFn, so the client can understand it without knowing
-    welcome codes.
-    """
-    @staticmethod
-    def code() -> str:
-        return "rxcat__reg_err"
+    Welcome = 0
+    Ok = 1
 
 # placed here and not at _rpc.py to avoid circulars
 def srpc():
@@ -125,34 +111,6 @@ class ResourceServerErr(Exception):
     @staticmethod
     def code() -> str:
         return "rxcat__resource_server_err"
-
-class ServerRegData(BaseModel):
-    """
-    Data formed by the server on RegProtocol call.
-    """
-    data: dict[str, Any] | None = None
-    """
-    Dict to be sent back to client with extra information from the resource
-    server.
-    """
-
-    @staticmethod
-    def code() -> str:
-        return "rxcat__server_reg_data"
-
-@runtime_checkable
-class RegFn(Protocol):
-    """
-    Reg function to be called on client RegReq arrival.
-    """
-    async def __call__(
-                self,
-                /,
-                connsid: str,
-                tokens: list[str],
-                client_data: dict[str, Any] | None
-            ) -> ServerRegData | RegErr | None:
-        ...
 
 class Internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -260,14 +218,6 @@ class ServerBusCfg(BaseModel):
     Types to register on bus initialization.
     """
 
-    reg_fn: RegFn | None = None
-    """
-    Function used to reg client.
-
-    Defaults to None. If None, all users are still required to send
-    RegReq, but no alternative function will be called.
-    """
-
     sub_ctxfn: Callable[[Msg], Awaitable[Res[CtxManager]]] | None = None
     rpc_ctxfn: Callable[[SrpcSend], Awaitable[Res[CtxManager]]] | None = None
 
@@ -294,15 +244,37 @@ class ServerBus(Singleton):
         route="rx"
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
-        "rxcat__reg",
-        "rxcat__server_reg_data",
-        "rxcat__reg_err",
         "rxcat__welcome",
         "rxcat__ok"
     ]
 
     def __init__(self):
         self._is_initd = False
+
+    def get_conn_tokens(
+            self, connsid: str) -> Res[list[str]]:
+        conn = self._sid_to_conn.get(connsid, None)
+        if conn is None:
+            return valerr(f"no conn with sid {connsid}")
+        return Ok(conn.get_tokens())
+
+    def set_conn_tokens(
+            self, connsid: str, tokens: list[str]) -> Res[None]:
+        conn = self._sid_to_conn.get(connsid, None)
+        if conn is None:
+            return valerr(f"no conn with sid {connsid}")
+        conn.set_tokens(tokens)
+        return Ok(None)
+
+    async def close_conn(self, connsid: str) -> Res[None]:
+        conn = self._sid_to_conn.get(connsid, None)
+        if conn is None:
+            return valerr(f"no conn with sid {connsid}")
+        if conn.is_closed:
+            return valerr("already closed")
+        if connsid in self._sid_to_conn:
+            del self._sid_to_conn[connsid]
+        return await aresultify(conn.close())
 
     def get_ctx(self) -> dict:
         return _rxcat_ctx.get().copy()
@@ -334,9 +306,6 @@ class ServerBus(Singleton):
 
         reg_types = [] if cfg.reg_types is None else cfg.reg_types
         (await self.reg_types([
-            Reg,
-            ServerRegData,
-            RegErr,
             Welcome,
             ok,
             SrpcSend,
@@ -363,15 +332,6 @@ class ServerBus(Singleton):
                 val=AttributeError),
             *reg_types
         ])).eject()
-
-    async def close_conn(self, sid: str) -> Res[None]:
-        if sid not in self._sid_to_conn:
-            return Err(NotFoundErr(f"conn with sid {sid}"))
-        conn = self._sid_to_conn[sid]
-        del self._sid_to_conn[sid]
-        if not conn.is_closed:
-            await conn.close()
-        return Ok(None)
 
     @property
     def is_initd(self) -> bool:
@@ -475,8 +435,6 @@ class ServerBus(Singleton):
         self._sid_to_conn[conn.sid] = conn
 
         try:
-            if atransport.transport.is_registration_enabled:
-                await self._read_conn_reg(conn, atransport)
             await conn.send(self._preserialized_welcome_msg)
             await self._read_ws(conn, atransport)
         except Exception as err:
@@ -910,45 +868,6 @@ class ServerBus(Singleton):
             raise TimeoutError(
                 f"inactivity of conn {conn} for transport {atransport}"
             ) from err
-
-    async def _read_conn_reg(
-            self,
-            conn: Conn,
-            atransport: ActiveTransport):
-        rmsg = await self._receive_from_conn(conn, atransport)
-
-        msg = (await self._parse_rmsg(rmsg, conn)).eject()
-
-        if not isinstance(msg.data, Reg):
-            raise ValErr(f"first msg data should be Reg, got {msg.data}")
-
-        reg_data = ok()
-        if self._cfg.reg_fn is not None:
-            reg_data = await self._cfg.reg_fn(
-                conn.sid, msg.data.tokens, msg.data.data)
-            if reg_data is None:
-                reg_data = ok()
-
-        if (
-                type(reg_data) is not ServerRegData
-                and type(reg_data) is not ok
-                and type(reg_data) is not RegErr):
-            reg_data = RegErr(f"unexpected retval of regfn {reg_data}")
-
-        # push manually to ensure it arrives before
-        # the welcome msg, and is not stucking in the queue
-        #
-        # errs are pushed too, but then the conn loop will close the connection
-        reg_data_msg = self._make_msg(
-            reg_data, PubOpts(target_connsids=[conn.sid])).eject()
-        serialized = (await reg_data_msg.serialize_to_net()) \
-            .eject()
-        await conn.send(serialized)
-
-        if isinstance(reg_data, RegErr):
-            raise reg_data
-
-        return None
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:
