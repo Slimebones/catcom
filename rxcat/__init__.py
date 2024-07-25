@@ -513,7 +513,7 @@ class ServerBus(Singleton):
         self,
         subfn: SubFn[TMdata_contra],
         opts: SubOpts = SubOpts(),
-    ) -> Res[Callable]:
+    ) -> Res[Callable[[], Awaitable[Res[None]]]]:
         """
         Subscribes to certain message.
 
