@@ -284,7 +284,7 @@ class ServerBus(Singleton):
         "rxcat__reg",
         "rxcat__server_reg_data",
         "rxcat__welcome",
-        "rxcat__req_err"
+        "rxcat__reg_err"
     ]
 
     def __init__(self):

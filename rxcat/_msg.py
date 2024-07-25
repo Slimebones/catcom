@@ -118,6 +118,7 @@ class Msg(BaseModel):
         for k in keys_to_del:
             del final[k]
 
+        final["data"] = data
         return Ok(final)
 
     @classmethod
