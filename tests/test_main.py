@@ -6,14 +6,7 @@ from pykit.err_utils import get_err_msg
 from pykit.res import Ok
 from pykit.uuid import uuid4
 
-from rxcat import (
-    ConnArgs,
-    PubList,
-    PubOpts,
-    ServerBus,
-    StaticCodeid,
-    ok
-)
+from rxcat import ConnArgs, PubList, PubOpts, ServerBus, StaticCodeid
 from tests.conftest import (
     EmptyMock,
     Mock_1,
@@ -42,7 +35,7 @@ async def test_data_static_indexes(sbus: ServerBus):
     assert codes[1] == "rxcat__server_reg_data"
     assert codes[2] == "rxcat__reg_err"
     assert codes[3] == "rxcat__welcome"
-    assert codes[4] == "ok"
+    assert codes[4] == "rxcat__ok"
 
 async def test_pubsub_err(sbus: ServerBus):
     flag = False
@@ -118,9 +111,9 @@ async def test_empty_data(sbus: ServerBus):
     await asyncio.wait_for(conn.client__recv(), 1)
     await conn.client__send({
         "sid": uuid4(),
-        "datacodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject()
+        "datacodeid": (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     })
-    response = await conn.client__recv()
+    response = await asyncio.wait_for(conn.client__recv(), 1)
     assert response["datacodeid"] == StaticCodeid.Ok
 
     conn_task.cancel()

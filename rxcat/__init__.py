@@ -933,9 +933,9 @@ class ServerBus(Singleton):
                 reg_data = ok()
 
         if (
-                not type(reg_data) is ServerRegData
-                or not type(reg_data) is ok
-                or not type(reg_data) is RegErr):
+                type(reg_data) is not ServerRegData
+                and type(reg_data) is not ok
+                and type(reg_data) is not RegErr):
             reg_data = RegErr(f"unexpected retval of regfn {reg_data}")
 
         # push manually to ensure it arrives before
@@ -950,6 +950,8 @@ class ServerBus(Singleton):
 
         if isinstance(reg_data, RegErr):
             raise reg_data
+
+        return None
 
     async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
         async for rmsg in conn:

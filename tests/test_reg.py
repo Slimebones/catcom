@@ -1,13 +1,18 @@
 import asyncio
 from typing import Any
 
-from pykit.code import Code
-from pykit.err import ValErr
 from pykit.err_utils import create_err_dto
-from pykit.res import Ok, Res, valerr
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, RegErr, ServerBus, ServerBusCfg, ServerRegData, StaticCodeid, Transport
+from rxcat import (
+    ConnArgs,
+    RegErr,
+    ServerBus,
+    ServerBusCfg,
+    ServerRegData,
+    StaticCodeid,
+    Transport,
+)
 from tests.conftest import Mock_1, Mock_2, MockConn
 
 
@@ -54,7 +59,7 @@ async def test_main():
         }
     })
     server_reg_evt = await asyncio.wait_for(conn.client__recv(), 1)
-    assert server_reg_evt["datacodeid"] == 1
+    assert server_reg_evt["datacodeid"] == StaticCodeid.ServerRegData
     assert server_reg_evt["data"]["data"] == {"state": 12}
     welcome = await asyncio.wait_for(conn.client__recv(), 1)
     assert welcome["datacodeid"] == StaticCodeid.Welcome
