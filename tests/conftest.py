@@ -21,19 +21,19 @@ class Mock_1(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat__mock_1"
+        return "rxcat::mock_1"
 
 class Mock_2(BaseModel):
     num: int
 
     @staticmethod
     def code() -> str:
-        return "rxcat__mock_2"
+        return "rxcat::mock_2"
 
 class EmptyMock(BaseModel):
     @staticmethod
     def code() -> str:
-        return "rxcat__empty_mock"
+        return "rxcat::empty_mock"
 
 @pytest_asyncio.fixture(autouse=True)
 async def auto():

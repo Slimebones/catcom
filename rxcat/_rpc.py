@@ -29,7 +29,7 @@ class SrpcSend(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat__srpc_send"
+        return "rxcat::srpc_send"
 
 class SrpcRecv(BaseModel):
     key: str
@@ -41,7 +41,7 @@ class SrpcRecv(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat__srpc_recv"
+        return "rxcat::srpc_recv"
 
 class RpcFn(Protocol):
     """

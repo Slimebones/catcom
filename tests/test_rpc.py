@@ -34,7 +34,7 @@ async def test_main(sbus: ServerBus):
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
     rxcat_rpc_req_bodycodeid = find_codeid_in_welcome_rmsg(
-        "rxcat__srpc_send", welcome_rmsg).eject()
+        "rxcat::srpc_send", welcome_rmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
 

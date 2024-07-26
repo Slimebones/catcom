@@ -44,8 +44,8 @@ async def test_pubsub(sbus: ServerBus):
 
 async def test_data_static_indexes(sbus: ServerBus):
     codes = (await Code.get_regd_codes()).eject()
-    assert codes[0] == "rxcat__welcome"
-    assert codes[1] == "rxcat__ok"
+    assert codes[0] == "rxcat::welcome"
+    assert codes[1] == "rxcat::ok"
 
 async def test_pubsub_err(sbus: ServerBus):
     flag = False

@@ -1,3 +1,7 @@
+# 1.0.2
+
+- allow and use moduled codes
+
 # 1.0.1
 
 - rpc functions now accept body: BaseModel instead of args: BaseModel

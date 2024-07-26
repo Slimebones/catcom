@@ -204,7 +204,7 @@ TMsg = TypeVar("TMsg", bound=Msg)
 class ok:
     @staticmethod
     def code() -> str:
-        return "rxcat__ok"
+        return "rxcat::ok"
 
 class Welcome(BaseModel):
     """
@@ -214,4 +214,4 @@ class Welcome(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat__welcome"
+        return "rxcat::welcome"

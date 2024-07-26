@@ -125,7 +125,7 @@ class InterruptPipeline:
 class ResourceServerErr(Exception):
     @staticmethod
     def code() -> str:
-        return "rxcat__resource_server_err"
+        return "rxcat::resource_server_err"
 
 class Internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -272,8 +272,8 @@ class ServerBus(Singleton):
         route="rx"
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
-        "rxcat__welcome",
-        "rxcat__ok"
+        "rxcat::welcome",
+        "rxcat::ok"
     ]
 
     def __init__(self):
