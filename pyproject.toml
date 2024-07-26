@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rxcat"
-version = "1.0.1"
+version = "1.0.2"
 description = ""
 authors = ["ryzhovalex <thed4rkof@gmail.com>"]
 readme = "README.md"
