@@ -424,11 +424,11 @@ class ServerBus(Singleton):
             return Err(ValErr(f"code {rpc_code} must start with \"srpc__\""))
 
         sig = signature(fn)
-        sig_param = sig.parameters.get("args")
+        sig_param = sig.parameters.get("body")
         if not sig_param:
             return Err(ValErr(
                 f"rpc fn {fn} with code {rpc_code} must accept"
-                " \"args: AnyBaseModel\" as it's sole argument"))
+                " \"body: AnyBaseModel\" as it's sole argument"))
         args_type = sig_param.annotation
         if args_type is BaseModel:
             return Err(ValErr(

@@ -12,6 +12,8 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel
 from pykit.res import Res
 
+from rxcat._msg import Mbody
+
 
 class EmptyRpcArgs(BaseModel):
     """
@@ -52,5 +54,5 @@ class RpcFn(Protocol):
     # to accept any instance of BaseModel
     #
     # ...and we don't want to use generics here, for now
-    async def __call__(self, args: Any) -> Res[Any]: ...
+    async def __call__(self, body: Mbody) -> Res[Any]: ...
 TRpcFn = TypeVar("TRpcFn", bound=RpcFn)

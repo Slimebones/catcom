@@ -19,9 +19,9 @@ async def test_main(sbus: ServerBus):
     class UpdEmailArgs(BaseModel):
         username: str
         email: str
-    async def srpc__update_email(args: UpdEmailArgs) -> Res[int]:
-        username = args.username
-        email = args.email
+    async def srpc__update_email(body: UpdEmailArgs) -> Res[int]:
+        username = body.username
+        email = body.email
         if username == "throw":
             return Err(ValErr("hello"))
         assert username == "test_username"
@@ -75,7 +75,7 @@ async def test_main(sbus: ServerBus):
 
 async def test_srpc_decorator():
     @srpc
-    async def srpc__test(args: EmptyMock) -> Res[Any]:
+    async def srpc__test(body: EmptyMock) -> Res[Any]:
         return Ok(None)
     sbus = ServerBus.ie()
     await sbus.init()

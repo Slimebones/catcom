@@ -45,7 +45,7 @@ async def test_subfn(sbus: ServerBus):
 
 async def test_rpc(sbus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
-    async def srpc__update_email(args: EmptyRpcArgs) -> Res[int]:
+    async def srpc__update_email(body: EmptyRpcArgs) -> Res[int]:
         assert sbus.get_ctx()["connsid"] == conn.sid
         return Ok(0)
 
@@ -90,7 +90,7 @@ async def test_rpc_custom_ctx_manager():
         sub_ctxfn=get_mock_ctx_manager_for_msg))
 
     conn = MockConn(ConnArgs(core=None))
-    async def srpc__update_email(args: EmptyRpcArgs) -> Res[int]:
+    async def srpc__update_email(body: EmptyRpcArgs) -> Res[int]:
         assert rxcat_mock_ctx.get()["name"] == "hello"
         return Ok(0)
 
