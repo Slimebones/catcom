@@ -1,3 +1,7 @@
+# 1.0.1
+
+- rpc functions now accept body: BaseModel instead of args: BaseModel
+
 # 1.0.0
 
 Complete rebuild to data-oriented instead of msg-oriented. Some of features (but not all of them) are listed below.
