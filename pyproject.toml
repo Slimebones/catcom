@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "slimebones-rxcat"
+name = "sb-rxcat"
 version = "1.0.2"
 description = ""
 authors = ["ryzhovalex <thed4rkof@gmail.com>"]
@@ -11,7 +11,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.11"
 aiohttp = {extras = ["speedups"], version = "^3.9.3"}
-pykit = "^0.12.3"
+sb-pykit = "^0.12.3"
 
 [tool.poetry.group.dev.dependencies]
 lorem = "^0.1.1"
