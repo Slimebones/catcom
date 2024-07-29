@@ -1,14 +1,17 @@
 [tool.poetry]
-name = "rxcat"
+name = "slimebones-rxcat"
 version = "1.0.2"
 description = ""
 authors = ["ryzhovalex <thed4rkof@gmail.com>"]
 readme = "README.md"
+packages = [
+    { include = "rxcat" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
 aiohttp = {extras = ["speedups"], version = "^3.9.3"}
-pykit = {git = "https://github.com/slimebones/pykit.git", rev = "0.12.3"}
+pykit = "^0.12.3"
 
 [tool.poetry.group.dev.dependencies]
 lorem = "^0.1.1"
