@@ -1033,9 +1033,9 @@ class ServerBus(Singleton):
         try:
             if ctx_manager:
                 async with ctx_manager:
-                    res = await fn(args_type.model_validate(body.args))
+                    res = await fn(args_type.model_validate(body.body))
             else:
-                res = await fn(args_type.model_validate(body.args))
+                res = await fn(args_type.model_validate(body.body))
         except Exception as err:
             await log.atrack(
                 err, f"rpcfn on req {body} => wrap to usual RpcRecv")

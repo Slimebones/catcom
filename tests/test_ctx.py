@@ -60,7 +60,7 @@ async def test_rpc(sbus: ServerBus):
         "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
         "body": {
             "key": rpc_key,
-            "args": {"username": "test_username", "email": "test_email"}
+            "body": {"username": "test_username", "email": "test_email"}
         }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)
@@ -105,7 +105,7 @@ async def test_rpc_custom_ctx_manager():
         "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
         "body": {
             "key": rpc_key,
-            "args": {}
+            "body": {}
         }
     })
     rmsg = await asyncio.wait_for(conn.client__recv(), 1)

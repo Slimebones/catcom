@@ -1,3 +1,7 @@
+# 1.0.3
+
+- rpc/SrpcSend: rename "args" to "body"
+
 # 1.0.2
 
 - allow and use moduled codes
