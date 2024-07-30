@@ -45,7 +45,7 @@ async def test_main(sbus: ServerBus):
         "bodycodeid": rxcat_rpc_req_bodycodeid,
         "body": {
             "key": rpc_key,
-            "args": {"username": "test_username", "email": "test_email"}
+            "body": {"username": "test_username", "email": "test_email"}
         }
     })
     rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
@@ -60,7 +60,7 @@ async def test_main(sbus: ServerBus):
         "bodycodeid": rxcat_rpc_req_bodycodeid,
         "body": {
             "key": rpc_key,
-            "args": {"username": "throw", "email": "test_email"}
+            "body": {"username": "throw", "email": "test_email"}
         }
     })
     rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
