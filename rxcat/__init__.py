@@ -439,7 +439,7 @@ class ServerBus(Singleton):
                 f"rpc fn {fn} with code {rpc_code} must accept args in form"
                 f" of BaseModel, got {args_type}"))
 
-        cls._rpccode_to_fn[rpc_code] = (fn, args_type)
+        cls._rpccode_to_fn[rpc_code.replace("srpc__", "")] = (fn, args_type)
         return Ok(None)
 
     async def postinit(self):

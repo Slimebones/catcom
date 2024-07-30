@@ -1,3 +1,7 @@
+# 1.0.5
+
+- rpc: remove "srpc__" prefix from rpc key
+
 # 1.0.4
 
 - rpc: now uses "::" key-token separator
