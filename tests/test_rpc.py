@@ -39,7 +39,7 @@ async def test_main(sbus: ServerBus):
     ServerBus.reg_rpc(srpc__update_email).eject()
 
     rpc_token = uuid4()
-    rpc_key = "srpc__update_email:" + rpc_token
+    rpc_key = "srpc__update_email::" + rpc_token
     await conn_1.client__send({
         "sid": uuid4(),
         "bodycodeid": rxcat_rpc_req_bodycodeid,
@@ -54,7 +54,7 @@ async def test_main(sbus: ServerBus):
     assert rpc_data["val"] == 0
 
     rpc_token = uuid4()
-    rpc_key = "srpc__update_email:" + rpc_token
+    rpc_key = "srpc__update_email::" + rpc_token
     await conn_1.client__send({
         "sid": uuid4(),
         "bodycodeid": rxcat_rpc_req_bodycodeid,

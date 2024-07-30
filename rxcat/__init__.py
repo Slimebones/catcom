@@ -1013,7 +1013,7 @@ class ServerBus(Singleton):
 
     async def _call_rpc(self, msg: Msg):
         body = msg.body
-        code, _ = body.key.split(":")
+        code, _ = body.key.split("::")
         if code not in self._rpccode_to_fn:
             log.err(f"no such rpc code {code} for req {body} => skip")
             return

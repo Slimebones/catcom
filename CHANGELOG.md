@@ -1,3 +1,7 @@
+# 1.0.4
+
+- rpc: now uses "::" key-token separator
+
 # 1.0.3
 
 - rpc/SrpcSend: rename "args" to "body"
