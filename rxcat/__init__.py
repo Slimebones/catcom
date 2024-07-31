@@ -260,7 +260,7 @@ class ServerBus(Singleton):
 
     Using this queue can be disabled by cfg.consider_sub_decorators.
     """
-    _rpccode_to_fn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
+    _rpckey_to_fn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
     DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
         is_server=True,
         conn_type=Ws,
@@ -412,34 +412,42 @@ class ServerBus(Singleton):
         return await self._set_welcome()
 
     @classmethod
-    def reg_rpc(cls, fn: RpcFn) -> Res[None]:
+    def reg_rpc(
+            cls,
+            fn: RpcFn,
+            custom_rpc_key: str | None = None) -> Res[None]:
         """
-        Regs server rpc (srpc).
+        Reg server rpc (srpc).
         """
-        rpc_code = fn.__name__ # type: ignore
+        fn_name = fn.__name__  # type: ignore
+        if not fn_name.startswith("srpc__"):
+            return Err(ValErr(f"rpc fn {fn} name must start with \"srpc__\""))
 
-        if rpc_code in cls._rpccode_to_fn:
-            return Err(ValErr(f"rpc code {rpc_code} is already regd"))
-        if not rpc_code.startswith("srpc__"):
-            return Err(ValErr(f"code {rpc_code} must start with \"srpc__\""))
+        if custom_rpc_key:
+            rpc_key = custom_rpc_key
+        else:
+            rpc_key = fn_name.replace("srpc__", "")
+
+        if rpc_key in cls._rpckey_to_fn:
+            return Err(ValErr(f"rpc key {rpc_key} is already regd"))
 
         sig = signature(fn)
         sig_param = sig.parameters.get("body")
         if not sig_param:
             return Err(ValErr(
-                f"rpc fn {fn} with code {rpc_code} must accept"
+                f"rpc fn {fn} with key {rpc_key} must accept"
                 " \"body: AnyBaseModel\" as it's sole argument"))
         args_type = sig_param.annotation
         if args_type is BaseModel:
             return Err(ValErr(
-                f"rpc fn {fn} with code {rpc_code} cannot declare BaseModel"
+                f"rpc fn {fn} with key {rpc_key} cannot declare BaseModel"
                 " as it's direct args type"))
         if not issubclass(args_type, BaseModel):
             return Err(ValErr(
-                f"rpc fn {fn} with code {rpc_code} must accept args in form"
+                f"rpc fn {fn} with code {rpc_key} must accept args in form"
                 f" of BaseModel, got {args_type}"))
 
-        cls._rpccode_to_fn[rpc_code.replace("srpc__", "")] = (fn, args_type)
+        cls._rpckey_to_fn[rpc_key] = (fn, args_type)
         return Ok(None)
 
     async def postinit(self):
@@ -459,7 +467,7 @@ class ServerBus(Singleton):
             atransport.inp_queue_processor.cancel()
             atransport.out_queue_processor.cancel()
 
-        cls._rpccode_to_fn.clear()
+        cls._rpckey_to_fn.clear()
         Code.destroy()
 
         ServerBus.try_discard()
@@ -1013,11 +1021,10 @@ class ServerBus(Singleton):
 
     async def _call_rpc(self, msg: Msg):
         body = msg.body
-        code, _ = body.key.split("::")
-        if code not in self._rpccode_to_fn:
-            log.err(f"no such rpc code {code} for req {body} => skip")
+        if body.key not in self._rpckey_to_fn:
+            log.err(f"no such rpc code {body.key} for req {body} => skip")
             return
-        fn, args_type = self._rpccode_to_fn[code]
+        fn, args_type = self._rpckey_to_fn[body.key]
 
         _rxcat_ctx.set(self._gen_ctx_dict_for_msg(msg))
 

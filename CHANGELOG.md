@@ -1,3 +1,7 @@
+# 1.0.6
+
+- rpc: use msg sid instead of key's attached uuid
+
 # 1.0.5
 
 - rpc: remove "srpc__" prefix from rpc key

@@ -53,8 +53,7 @@ async def test_rpc(sbus: ServerBus):
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
     ServerBus.reg_rpc(srpc__update_email).eject()
-    rpc_token = uuid4()
-    rpc_key = "update_email::" + rpc_token
+    rpc_key = "update_email"
     await conn.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
@@ -98,8 +97,7 @@ async def test_rpc_custom_ctx_manager():
     # recv welcome
     await asyncio.wait_for(conn.client__recv(), 1)
     ServerBus.reg_rpc(srpc__update_email).eject()
-    rpc_token = uuid4()
-    rpc_key = "update_email::" + rpc_token
+    rpc_key = "update_email"
     await conn.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),

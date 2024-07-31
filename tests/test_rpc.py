@@ -38,8 +38,7 @@ async def test_main(sbus: ServerBus):
 
     ServerBus.reg_rpc(srpc__update_email).eject()
 
-    rpc_token = uuid4()
-    rpc_key = "update_email::" + rpc_token
+    rpc_key = "update_email"
     await conn_1.client__send({
         "sid": uuid4(),
         "bodycodeid": rxcat_rpc_req_bodycodeid,
@@ -53,8 +52,7 @@ async def test_main(sbus: ServerBus):
     assert rpc_data["key"] == rpc_key
     assert rpc_data["val"] == 0
 
-    rpc_token = uuid4()
-    rpc_key = "update_email::" + rpc_token
+    rpc_key = "update_email"
     await conn_1.client__send({
         "sid": uuid4(),
         "bodycodeid": rxcat_rpc_req_bodycodeid,
@@ -79,4 +77,4 @@ async def test_srpc_decorator():
         return Ok(None)
     sbus = ServerBus.ie()
     await sbus.init()
-    assert "test" in sbus._rpccode_to_fn  # noqa: SLF001
+    assert "test" in sbus._rpckey_to_fn  # noqa: SLF001
