@@ -1066,9 +1066,8 @@ class ServerBus(Singleton):
             lsid=msg.sid,
             skip__target_connsids=[msg.skip__connsid],
             skip__bodycode=SrpcRecv.code(),
-            body=SrpcRecv(
-                key=body.key,
-                val=val))
+            # pass val directly to optimize
+            body=val)
         # we publish directly to the net since inner participants can't
         # subscribe to this
         await self._pub_msg_to_net(evt)

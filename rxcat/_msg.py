@@ -102,7 +102,7 @@ class Msg(BaseModel):
             del final[k]
 
         final["body"] = body
-        if not body and "body" in final:
+        if body is None and "body" in final:
             del final["body"]
         return Ok(final)
 

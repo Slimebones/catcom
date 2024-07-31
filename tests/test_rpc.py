@@ -48,13 +48,13 @@ async def test_main(sbus: ServerBus):
         }
     })
     rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
-    rpc_data = rpc_recv["body"]
-    assert rpc_data["key"] == rpc_key
-    assert rpc_data["val"] == 0
+    rpc_body = rpc_recv["body"]
+    assert rpc_body == 0
 
     rpc_key = "update_email"
+    send_msid = uuid4()
     await conn_1.client__send({
-        "sid": uuid4(),
+        "sid": send_msid,
         "bodycodeid": rxcat_rpc_req_bodycodeid,
         "body": {
             "key": rpc_key,
@@ -62,12 +62,11 @@ async def test_main(sbus: ServerBus):
         }
     })
     rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
-    rpc_data = rpc_recv["body"]
-    assert rpc_data["key"] == rpc_key
-    val = rpc_data["val"]
-    assert rpc_data["val"]["errcode"] == ValErr.code()
-    assert val["msg"] == "hello"
-    assert val["name"] == get_fqname(ValErr())
+    assert rpc_recv["lsid"] == send_msid
+    rpc_body = rpc_recv["body"]
+    assert rpc_body["errcode"] == ValErr.code()
+    assert rpc_body["msg"] == "hello"
+    assert rpc_body["name"] == get_fqname(ValErr())
 
     conn_task_1.cancel()
 
@@ -75,6 +74,14 @@ async def test_srpc_decorator():
     @srpc
     async def srpc__test(body: EmptyMock) -> Res[Any]:
         return Ok(None)
-    sbus = ServerBus.ie()
-    await sbus.init()
-    assert "test" in sbus._rpckey_to_fn  # noqa: SLF001
+    bus = ServerBus.ie()
+    await bus.init()
+    assert "test" in bus._rpckey_to_fn  # noqa: SLF001
+
+async def test_reg_custom_rpc_key():
+    async def srpc__test(body: EmptyMock) -> Res[Any]:
+        return Ok(None)
+    bus = ServerBus.ie()
+    await bus.init()
+    bus.reg_rpc(srpc__test, "whocares").eject()
+    assert "whocares" in bus._rpckey_to_fn  # noqa: SLF001

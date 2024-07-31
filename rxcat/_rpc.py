@@ -32,7 +32,10 @@ class SrpcSend(BaseModel):
         return "rxcat::srpc_send"
 
 class SrpcRecv(BaseModel):
-    key: str
+    """
+    Only ``val`` field directly passed to serialization, so the msg's body
+    contain this directly.
+    """
     val: Any
     """
     Returned value can be anything serializable or an exception, which will

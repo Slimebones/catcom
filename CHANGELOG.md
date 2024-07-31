@@ -1,6 +1,7 @@
 # 1.0.6
 
 - rpc: use msg sid instead of key's attached uuid
+- rpc: allow reg_rpc to accept custom rpc key
 
 # 1.0.5
 
