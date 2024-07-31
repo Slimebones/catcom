@@ -109,12 +109,12 @@ class Msg(BaseModel):
     @classmethod
     async def _parse_rmsg_code(cls, rmsg: dict) -> Res[str]:
         if "bodycodeid" not in rmsg:
-            return Err(ValErr(f"msg {rmsg} must have \"codeid\" field"))
+            return Err(ValErr(f"msg {rmsg} must have \"bodycodeid\" field"))
         codeid = rmsg["bodycodeid"]
         del rmsg["bodycodeid"]
         if not isinstance(codeid, int):
             return Err(ValErr(
-                f"invalid type of codeid {codeid}, expected int"))
+                f"invalid type of bodycodeid {codeid}, expected int"))
 
         code_res = await Code.get_regd_code_by_id(codeid)
         if isinstance(code_res, Err):
