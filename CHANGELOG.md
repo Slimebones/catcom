@@ -1,3 +1,8 @@
+# 1.0.7
+
+- msg: make ok be a base model
+- msg/serialize: exclude zero-len objects from serialization
+
 # 1.0.6
 
 - rpc: use msg sid instead of key's attached uuid

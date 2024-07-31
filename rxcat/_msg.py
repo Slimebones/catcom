@@ -75,6 +75,10 @@ class Msg(BaseModel):
         final = self.model_dump()
 
         body = final["body"]
+        # don't include empty collections in serialization
+        if getattr(body, "__len__", None) is not None and len(body) == 0:
+            body = None
+
         # serialize exception to errdto
         if isinstance(body, Exception):
             err_dto_res = await create_err_dto(body)
@@ -201,7 +205,7 @@ class Msg(BaseModel):
 TMsg = TypeVar("TMsg", bound=Msg)
 
 # lowercase to not conflict with result.Ok
-class ok:
+class ok(BaseModel):
     @staticmethod
     def code() -> str:
         return "rxcat::ok"
