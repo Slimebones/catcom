@@ -7,7 +7,7 @@ import pytest_asyncio
 from pydantic import BaseModel
 from pykit.res import Ok, Res, valerr
 
-from rxcat import (
+from yon import (
     Conn,
     ConnArgs,
     ServerBus,
@@ -21,19 +21,19 @@ class Mock_1(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat::mock_1"
+        return "yon::mock_1"
 
 class Mock_2(BaseModel):
     num: int
 
     @staticmethod
     def code() -> str:
-        return "rxcat::mock_2"
+        return "yon::mock_2"
 
 class EmptyMock(BaseModel):
     @staticmethod
     def code() -> str:
-        return "rxcat::empty_mock"
+        return "yon::empty_mock"
 
 @pytest_asyncio.fixture(autouse=True)
 async def auto():
@@ -85,10 +85,10 @@ class MockConn(Conn[None]):
     async def client__recv(self) -> dict:
         return await self.out_queue.get()
 
-rxcat_mock_ctx = ContextVar("rxcat_mock", default={})
+yon_mock_ctx = ContextVar("yon_mock", default={})
 class MockCtxManager:
     async def __aenter__(self):
-        rxcat_mock_ctx.set({"name": "hello"})
+        yon_mock_ctx.set({"name": "hello"})
     async def __aexit__(self, *args):
         return
 

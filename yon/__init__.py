@@ -1,5 +1,5 @@
 """
-Rxcat implementation for Python.
+Yon implementation for Python.
 """
 
 import asyncio
@@ -29,15 +29,15 @@ from pykit.res import Err, Ok, Res, Result, UnwrapErr, aresultify, valerr
 from pykit.singleton import Singleton
 from pykit.uuid import uuid4
 
-from rxcat._msg import (
+from yon._msg import (
     Mbody,
     Msg,
     TMbody_contra,
     Welcome,
     ok,
 )
-from rxcat._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend
-from rxcat._transport import (
+from yon._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend
+from yon._transport import (
     ActiveTransport,
     Conn,
     ConnArgs,
@@ -45,8 +45,8 @@ from rxcat._transport import (
     OnSendFn,
     Transport,
 )
-from rxcat._udp import Udp
-from rxcat._ws import Ws
+from yon._udp import Udp
+from yon._ws import Ws
 
 __all__ = [
     "ServerBus",
@@ -81,7 +81,7 @@ __all__ = [
 
 class StaticCodeid:
     """
-    Static codeids defined by Rxcat protocol.
+    Static codeids defined by Yon protocol.
     """
     Welcome = 0
     Ok = 1
@@ -125,7 +125,7 @@ class InterruptPipeline:
 class ResourceServerErr(Exception):
     @staticmethod
     def code() -> str:
-        return "rxcat::resource_server_err"
+        return "yon::resource_server_err"
 
 class Internal__InvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
@@ -199,7 +199,7 @@ class SubOpts(BaseModel):
 
     warn_unconventional_subfn_names: bool = True
 
-_rxcat_ctx = ContextVar("rxcat", default={})
+_yon_ctx = ContextVar("yon", default={})
 
 @runtime_checkable
 class CtxManager(Protocol):
@@ -250,7 +250,7 @@ class ServerBusCfg(BaseModel):
 
 class ServerBus(Singleton):
     """
-    Rxcat server bus implementation.
+    Yon server bus implementation.
     """
     subfn_init_queue: ClassVar[set[SubFn]] = set()
     """
@@ -272,8 +272,8 @@ class ServerBus(Singleton):
         route="rx"
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
-        "rxcat::welcome",
-        "rxcat::ok"
+        "yon::welcome",
+        "yon::ok"
     ]
 
     def __init__(self):
@@ -318,7 +318,7 @@ class ServerBus(Singleton):
         return await aresultify(conn.close())
 
     def get_ctx(self) -> dict:
-        return _rxcat_ctx.get().copy()
+        return _yon_ctx.get().copy()
 
     async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
         if self._is_initd:
@@ -635,10 +635,10 @@ class ServerBus(Singleton):
         return Ok(ptr.target)
 
     def get_ctx_key(self, key: str) -> Res[Any]:
-        val = _rxcat_ctx.get().get(key, None)
+        val = _yon_ctx.get().get(key, None)
         if val:
             return Ok(val)
-        return Err(NotFoundErr(f"\"{key}\" entry in rxcat ctx"))
+        return Err(NotFoundErr(f"\"{key}\" entry in yon ctx"))
 
     def get_ctx_connsid(self) -> Res[str]:
         return self.get_ctx_key("connsid")
@@ -657,7 +657,7 @@ class ServerBus(Singleton):
 
         Passed Result will be fetched for the value.
 
-        Passing rxcat::Msg is restricted to internal usage.
+        Passing yon::Msg is restricted to internal usage.
         """
         if isinstance(body, Ok):
             body = body.okval
@@ -807,7 +807,7 @@ class ServerBus(Singleton):
         return True
 
     def _gen_ctx_dict_for_msg(self, msg: Msg) -> dict:
-        ctx_dict = _rxcat_ctx.get().copy()
+        ctx_dict = _yon_ctx.get().copy()
 
         ctx_dict["msid"] = msg.sid
         if msg.skip__connsid:
@@ -821,7 +821,7 @@ class ServerBus(Singleton):
 
         Note that even None response is published as ok(None).
         """
-        _rxcat_ctx.set(self._gen_ctx_dict_for_msg(msg))
+        _yon_ctx.set(self._gen_ctx_dict_for_msg(msg))
 
         if self._cfg.sub_ctxfn is not None:
             try:
@@ -841,7 +841,7 @@ class ServerBus(Singleton):
 
         # by default all subsriber's body are intended to be linked to
         # initial message, so we attach this message ctx msid
-        lsid = _rxcat_ctx.get().get("subfn_lsid", "$ctx::msid")
+        lsid = _yon_ctx.get().get("subfn_lsid", "$ctx::msid")
         pub_opts = PubOpts(lsid=lsid)
         for val in vals:
             if val is None:
@@ -884,7 +884,7 @@ class ServerBus(Singleton):
 
         Useful at ``SubOpts.out_filters``, see ``disable_subfn_lsid``.
         """
-        ctx_dict = _rxcat_ctx.get().copy()
+        ctx_dict = _yon_ctx.get().copy()
         ctx_dict["subfn__lsid"] = lsid
 
     def _check_norpc_mbody(
@@ -1026,7 +1026,7 @@ class ServerBus(Singleton):
             return
         fn, args_type = self._rpckey_to_fn[body.key]
 
-        _rxcat_ctx.set(self._gen_ctx_dict_for_msg(msg))
+        _yon_ctx.set(self._gen_ctx_dict_for_msg(msg))
 
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:

@@ -1,7 +1,7 @@
 """
-Transport layer of rxcat protocol.
+Transport layer of yon protocol.
 
-Communication is typically managed externally, rxcat only accept incoming
+Communication is typically managed externally, yon only accept incoming
 connections.
 
 For a server general guideline would be to setup external connection manager,
@@ -41,7 +41,7 @@ class Conn(Generic[TConnCore]):
     Methods "recv" and "send" always work with dicts, so implementations
     must perform necessary operations to convert incoming data to dict
     and outcoming data to transport layer's default structure (typically
-    bytes). This is dictated by the need to product rxcat.Msg objects, which
+    bytes). This is dictated by the need to product yon.Msg objects, which
     can be conveniently done only through parsed dict object.
     """
     def __init__(self, args: ConnArgs[TConnCore]) -> None:

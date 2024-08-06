@@ -1,4 +1,4 @@
-from rxcat import ServerBus
+from yon import ServerBus
 
 __all__ = [
     "disable_subfn_lsid"

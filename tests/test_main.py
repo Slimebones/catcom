@@ -8,7 +8,7 @@ from pykit.err_utils import get_err_msg
 from pykit.res import Err, Ok, valerr
 from pykit.uuid import uuid4
 
-from rxcat import (
+from yon import (
     ConnArgs,
     InterruptPipeline,
     Mbody,
@@ -44,8 +44,8 @@ async def test_pubsub(sbus: ServerBus):
 
 async def test_data_static_indexes(sbus: ServerBus):
     codes = (await Code.get_regd_codes()).eject()
-    assert codes[0] == "rxcat::welcome"
-    assert codes[1] == "rxcat::ok"
+    assert codes[0] == "yon::welcome"
+    assert codes[1] == "yon::ok"
 
 async def test_pubsub_err(sbus: ServerBus):
     flag = False

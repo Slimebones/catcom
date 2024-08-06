@@ -1,5 +1,5 @@
 """
-Remote procedure call support for rxcat.
+Remote procedure call support for yon.
 
 Core messages - RpcReq and RpcEvt. Each of it has identification "key", in
 format "<fn_code>::<token>". Token is UUID4 string to differentiate which
@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel
 from pykit.res import Res
 
-from rxcat._msg import Mbody
+from yon._msg import Mbody
 
 
 class EmptyRpcArgs(BaseModel):
@@ -29,7 +29,7 @@ class SrpcSend(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat::srpc_send"
+        return "yon::srpc_send"
 
 class SrpcRecv(BaseModel):
     """
@@ -44,7 +44,7 @@ class SrpcRecv(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat::srpc_recv"
+        return "yon::srpc_recv"
 
 class RpcFn(Protocol):
     """

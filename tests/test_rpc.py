@@ -7,7 +7,7 @@ from pykit.err import ValErr
 from pykit.res import Err, Ok, Res
 from pykit.uuid import uuid4
 
-from rxcat import ConnArgs, ServerBus, srpc
+from yon import ConnArgs, ServerBus, srpc
 from tests.conftest import (
     EmptyMock,
     MockConn,
@@ -33,15 +33,15 @@ async def test_main(sbus: ServerBus):
     conn_task_1 = asyncio.create_task(sbus.conn(conn_1))
 
     welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
-    rxcat_rpc_req_bodycodeid = find_codeid_in_welcome_rmsg(
-        "rxcat::srpc_send", welcome_rmsg).eject()
+    yon_rpc_req_bodycodeid = find_codeid_in_welcome_rmsg(
+        "yon::srpc_send", welcome_rmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
 
     rpc_key = "update_email"
     await conn_1.client__send({
         "sid": uuid4(),
-        "bodycodeid": rxcat_rpc_req_bodycodeid,
+        "bodycodeid": yon_rpc_req_bodycodeid,
         "body": {
             "key": rpc_key,
             "body": {"username": "test_username", "email": "test_email"}
@@ -55,7 +55,7 @@ async def test_main(sbus: ServerBus):
     send_msid = uuid4()
     await conn_1.client__send({
         "sid": send_msid,
-        "bodycodeid": rxcat_rpc_req_bodycodeid,
+        "bodycodeid": yon_rpc_req_bodycodeid,
         "body": {
             "key": rpc_key,
             "body": {"username": "throw", "email": "test_email"}

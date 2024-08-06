@@ -1,12 +1,9 @@
 [tool.poetry]
-name = "sb-rxcat"
-version = "1.0.7"
+name = "yon"
+version = "1.0.8"
 description = ""
 authors = ["ryzhovalex <thed4rkof@gmail.com>"]
 readme = "README.md"
-packages = [
-    { include = "rxcat" }
-]
 
 [tool.poetry.dependencies]
 python = "^3.11"

@@ -1,6 +1,6 @@
 # from aiohttp.web import WebSocketResponse as AiohttpWebsocket
 
-# from rxcat._transport import Conn, ConnArgs
+# from yon._transport import Conn, ConnArgs
 
 
 class Udp:

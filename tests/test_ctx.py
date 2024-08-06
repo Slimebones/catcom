@@ -4,7 +4,7 @@ from pykit.code import Code
 from pykit.res import Ok, Res
 from pykit.uuid import uuid4
 
-from rxcat import (
+from yon import (
     ConnArgs,
     EmptyRpcArgs,
     ServerBus,
@@ -18,7 +18,7 @@ from tests.conftest import (
     Mock_1,
     MockConn,
     get_mock_ctx_manager_for_msg,
-    rxcat_mock_ctx,
+    yon_mock_ctx,
 )
 
 
@@ -73,7 +73,7 @@ async def test_sub_custom_ctx_manager():
     await sbus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
     async def sub__f(body: Mock_1):
-        assert rxcat_mock_ctx.get()["name"] == "hello"
+        assert yon_mock_ctx.get()["name"] == "hello"
 
     await sbus.sub(sub__f)
     await sbus.pubr(Mock_1(num=1))
@@ -90,7 +90,7 @@ async def test_rpc_custom_ctx_manager():
 
     conn = MockConn(ConnArgs(core=None))
     async def srpc__update_email(body: EmptyRpcArgs) -> Res[int]:
-        assert rxcat_mock_ctx.get()["name"] == "hello"
+        assert yon_mock_ctx.get()["name"] == "hello"
         return Ok(0)
 
     conn_task = asyncio.create_task(sbus.conn(conn))

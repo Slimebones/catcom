@@ -1,3 +1,3 @@
-# 🐱 Rxcat for Python
+# 🐱 Yon for Python
 
-Provides implementation of [Rxcat Protocol](http://rxcat.ryzhovalex.com) for Python.
+Provides implementation of [Yon Protocol](http://yon.ryzhovalex.com) for Python.

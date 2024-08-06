@@ -23,7 +23,7 @@ class Msg(BaseModel):
 
     Fields prefixed with "skip__" won't pass net serialization process.
 
-    Msgs are internal to rxcat implementation. The bus user is only interested
+    Msgs are internal to yon implementation. The bus user is only interested
     in the actual body he is operating on, and which connections they are
     operating with. And the Msg is just an underlying container for that.
     """
@@ -208,7 +208,7 @@ TMsg = TypeVar("TMsg", bound=Msg)
 class ok(BaseModel):
     @staticmethod
     def code() -> str:
-        return "rxcat::ok"
+        return "yon::ok"
 
 class Welcome(BaseModel):
     """
@@ -218,4 +218,4 @@ class Welcome(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "rxcat::welcome"
+        return "yon::welcome"
