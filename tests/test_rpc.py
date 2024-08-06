@@ -2,10 +2,10 @@ import asyncio
 from typing import Any
 
 from pydantic import BaseModel
-from pykit.code import get_fqname
-from pykit.err import ValErr
-from pykit.res import Err, Ok, Res
-from pykit.uuid import uuid4
+from ryz.code import get_fqname
+from ryz.err import ValErr
+from ryz.res import Err, Ok, Res
+from ryz.uuid import uuid4
 
 from tests.conftest import (
     EmptyMock,

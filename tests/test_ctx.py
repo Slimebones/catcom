@@ -1,8 +1,8 @@
 import asyncio
 
-from pykit.code import Code
-from pykit.res import Ok, Res
-from pykit.uuid import uuid4
+from ryz.code import Code
+from ryz.res import Ok, Res
+from ryz.uuid import uuid4
 
 from tests.conftest import (
     Mock_1,

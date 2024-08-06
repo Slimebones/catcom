@@ -1,12 +1,12 @@
 from typing import Any, Callable, Self, TypeVar
 
 from pydantic import BaseModel
-from pykit.code import Code
-from pykit.err import ValErr
-from pykit.err_utils import create_err_dto
-from pykit.log import log
-from pykit.res import Err, Ok, Res, resultify
-from pykit.uuid import uuid4
+from ryz.code import Code
+from ryz.err import ValErr
+from ryz.err_utils import create_err_dto
+from ryz.log import log
+from ryz.res import Err, Ok, Res, resultify
+from ryz.uuid import uuid4
 
 TMbody_contra = TypeVar("TMbody_contra", contravariant=True)
 Mbody = Any

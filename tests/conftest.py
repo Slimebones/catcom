@@ -5,7 +5,7 @@ from typing import Self
 
 import pytest_asyncio
 from pydantic import BaseModel
-from pykit.res import Ok, Res, valerr
+from ryz.res import Ok, Res, valerr
 
 from yon import (
     Conn,
