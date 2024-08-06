@@ -4,6 +4,12 @@ from pykit.code import Code
 from pykit.res import Ok, Res
 from pykit.uuid import uuid4
 
+from tests.conftest import (
+    Mock_1,
+    MockConn,
+    get_mock_ctx_manager_for_msg,
+    yon_mock_ctx,
+)
 from yon import (
     ConnArgs,
     EmptyRpcArgs,
@@ -13,12 +19,6 @@ from yon import (
     SrpcSend,
     Transport,
     ok,
-)
-from tests.conftest import (
-    Mock_1,
-    MockConn,
-    get_mock_ctx_manager_for_msg,
-    yon_mock_ctx,
 )
 
 

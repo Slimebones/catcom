@@ -1,5 +1,7 @@
 # 1.0.8
 
+- rename to Yon
+
 # 1.0.7
 
 - msg: make ok be a base model

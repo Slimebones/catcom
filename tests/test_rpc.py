@@ -7,12 +7,12 @@ from pykit.err import ValErr
 from pykit.res import Err, Ok, Res
 from pykit.uuid import uuid4
 
-from yon import ConnArgs, ServerBus, srpc
 from tests.conftest import (
     EmptyMock,
     MockConn,
     find_codeid_in_welcome_rmsg,
 )
+from yon import ConnArgs, ServerBus, srpc
 
 
 async def test_main(sbus: ServerBus):

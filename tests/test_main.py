@@ -8,6 +8,12 @@ from pykit.err_utils import get_err_msg
 from pykit.res import Err, Ok, valerr
 from pykit.uuid import uuid4
 
+from tests.conftest import (
+    EmptyMock,
+    Mock_1,
+    Mock_2,
+    MockConn,
+)
 from yon import (
     ConnArgs,
     InterruptPipeline,
@@ -19,12 +25,6 @@ from yon import (
     StaticCodeid,
     Transport,
     sub,
-)
-from tests.conftest import (
-    EmptyMock,
-    Mock_1,
-    Mock_2,
-    MockConn,
 )
 
 
