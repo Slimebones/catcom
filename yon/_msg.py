@@ -8,8 +8,8 @@ from ryz.log import log
 from ryz.res import Err, Ok, Res, resultify
 from ryz.uuid import uuid4
 
-TMbody_contra = TypeVar("TMbody_contra", contravariant=True)
-Mbody = Any
+TMsg_contra = TypeVar("TMsg_contra", contravariant=True)
+Msg = Any
 """
 Any custom body bus user interested in. Must be serializable and implement
 `code() -> str` method.
@@ -26,12 +26,6 @@ class Bmsg(BaseModel):
     Msgs are internal to yon implementation. The bus user is only interested
     in the actual body he is operating on, and which conections they are
     operating with. And the Msg is just an underlying container for that.
-
-    Note the difference:
-    * bus message - this class, contains conection and linking information
-    * app message (where `app` is a framework user) -
-        anything that is ``Coded``, ``Serialize`` and optionally
-        ``Deserialize``
     """
     sid: str = ""
     lsid: str | None = None
@@ -61,7 +55,7 @@ class Bmsg(BaseModel):
     """
     Code of msg's body.
     """
-    body: Mbody
+    body: Msg
 
     class Config:
         arbitrary_types_allowed = True
@@ -154,7 +148,7 @@ class Bmsg(BaseModel):
         return keys_to_del
 
     @classmethod
-    async def _parse_rmsg_body(cls, rmsg: dict) -> Res[Mbody]:
+    async def _parse_rmsg_body(cls, rmsg: dict) -> Res[Msg]:
         body = rmsg.get("body", None)
 
         code_res = await cls._parse_rmsg_code(rmsg)

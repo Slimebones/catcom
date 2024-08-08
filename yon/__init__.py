@@ -31,8 +31,8 @@ from ryz.uuid import uuid4
 
 from yon._msg import (
     Bmsg,
-    Mbody,
-    TMbody_contra,
+    Msg,
+    TMsg_contra,
     Welcome,
     ok,
 )
@@ -57,7 +57,7 @@ __all__ = [
 
     "ResourceServerErr",
 
-    "Mbody",
+    "Msg",
 
     "RpcFn",
     "srpc",
@@ -88,10 +88,10 @@ class StaticCodeid:
     Welcome = 0
     Ok = 1
 
-SubFnRetval = Mbody | Iterable[Mbody] | None
+SubFnRetval = Msg | Iterable[Msg] | None
 @runtime_checkable
-class SubFn(Protocol, Generic[TMbody_contra]):
-    async def __call__(self, msg: TMbody_contra) -> SubFnRetval: ...
+class SubFn(Protocol, Generic[TMsg_contra]):
+    async def __call__(self, msg: TMsg_contra) -> SubFnRetval: ...
 
 def sub(target: SubFn):
     ServerBus.subfn_init_queue.add(target)
@@ -106,7 +106,7 @@ def srpc(target: RpcFn):
         return target(*args, **kwargs)
     return inner
 
-class PubList(list[Mbody]):
+class PubList(list[Msg]):
     """
     List of mbody to be published.
 
@@ -121,7 +121,7 @@ class SkipMe:
     """
 
 class InterruptPipeline:
-    def __init__(self, body: Mbody) -> None:
+    def __init__(self, body: Msg) -> None:
         self.body = body
 
 class ResourceServerErr(Exception):
@@ -178,8 +178,8 @@ class PubOpts(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-MbodyCondition = Callable[[Mbody], Awaitable[bool]]
-MbodyFilter = Callable[[Mbody], Awaitable[Mbody]]
+MsgCondition = Callable[[Msg], Awaitable[bool]]
+MsgFilter = Callable[[Msg], Awaitable[Msg]]
 SubFnRetvalFilter = Callable[[SubFnRetval], Awaitable[SubFnRetval]]
 
 class SubOpts(BaseModel):
@@ -187,7 +187,7 @@ class SubOpts(BaseModel):
     """
     Whether to receive last stored msg with the same body code.
     """
-    conditions: Iterable[MbodyCondition] | None = None
+    conditions: Iterable[MsgCondition] | None = None
     """
     Conditions that must be true in order for the subscriber to be called.
 
@@ -196,7 +196,7 @@ class SubOpts(BaseModel):
     If all conditions fail for a subscriber, it is skipped completely
     (returns RetState.SkipMe).
     """
-    inp_filters: Iterable[MbodyFilter] | None = None
+    inp_filters: Iterable[MsgFilter] | None = None
     out_filters: Iterable[SubFnRetvalFilter] | None = None
 
     warn_unconventional_subfn_names: bool = True
@@ -241,8 +241,8 @@ class ServerBusCfg(BaseModel):
     log_net_send: bool = True
     log_net_recv: bool = True
 
-    global_subfn_conditions: Iterable[MbodyCondition] | None = None
-    global_subfn_inp_filters: Iterable[MbodyFilter] | None = None
+    global_subfn_conditions: Iterable[MsgCondition] | None = None
+    global_subfn_inp_filters: Iterable[MsgFilter] | None = None
     global_subfn_out_filters: Iterable[SubFnRetvalFilter] | None = None
 
     consider_sub_decorators: bool = True
@@ -335,7 +335,7 @@ class ServerBus(Singleton):
         self._subsid_to_code: dict[str, str] = {}
         self._subsid_to_subfn: dict[str, SubFn] = {}
         self._code_to_subfns: dict[str, list[SubFn]] = {}
-        self._code_to_last_mbody: dict[str, Mbody] = {}
+        self._code_to_last_mbody: dict[str, Msg] = {}
 
         self._preserialized_welcome_msg: dict = {}
 
@@ -509,7 +509,7 @@ class ServerBus(Singleton):
                 del self._sid_to_con[con.sid]
 
     def _get_bodytype_from_subfn(
-            self, subfn: SubFn[TMbody_contra]) -> Res[type[TMbody_contra]]:
+            self, subfn: SubFn[TMsg_contra]) -> Res[type[TMsg_contra]]:
         sig = signature(subfn)
         params = list(sig.parameters.values())
         if len(params) != 1:
@@ -521,7 +521,7 @@ class ServerBus(Singleton):
 
     async def sub(
         self,
-        subfn: SubFn[TMbody_contra],
+        subfn: SubFn[TMsg_contra],
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable[[], Awaitable[Res[None]]]]:
         """
@@ -600,19 +600,19 @@ class ServerBus(Singleton):
 
     async def pubr(
         self,
-        msg: Mbody,
+        msg: Msg,
         opts: PubOpts = PubOpts()
-    ) -> Res[Mbody]:
+    ) -> Res[Msg]:
         """
         Publishes a message and awaits for the response.
 
         If the response is Exception, it is wrapped to res::Err.
         """
         aevt = asyncio.Event()
-        ptr: Ptr[Mbody] = Ptr(target=None)
+        ptr: Ptr[Msg] = Ptr(target=None)
 
-        def wrapper(aevt: asyncio.Event, ptr: Ptr[Mbody]):
-            async def fn(msg: Mbody):
+        def wrapper(aevt: asyncio.Event, ptr: Ptr[Msg]):
+            async def fn(msg: Msg):
                 aevt.set()
                 ptr.target = msg
             return fn
@@ -647,7 +647,7 @@ class ServerBus(Singleton):
 
     async def pub(
         self,
-        msg: Mbody | Result,
+        msg: Msg | Result,
         opts: PubOpts = PubOpts()
     ) -> Res[None]:
         """
@@ -690,7 +690,7 @@ class ServerBus(Singleton):
         await self._exec_pub_send_order(bmsg, opts)
         return Ok(None)
 
-    def _unpack_err(self, body: Exception, track: bool) -> Mbody:
+    def _unpack_err(self, body: Exception, track: bool) -> Msg:
         if isinstance(body, Exception):
             if isinstance(body, UnwrapErr):
                 res = body.result
@@ -719,7 +719,7 @@ class ServerBus(Singleton):
         return Ok(lsid)
 
     def _make_msg(
-            self, body: Mbody, opts: PubOpts = PubOpts()) -> Res[Bmsg]:
+            self, body: Msg, opts: PubOpts = PubOpts()) -> Res[Bmsg]:
         code_res = Code.get_from_type(type(body))
         if isinstance(code_res, Err):
             return code_res
@@ -853,7 +853,7 @@ class ServerBus(Singleton):
     def _parse_subfn_retval(
             self,
             subfn: SubFn,
-            retval: SubFnRetval) -> Iterable[Mbody]:
+            retval: SubFnRetval) -> Iterable[Msg]:
         # unpack here, though it can be done inside pub(), but we want to
         # process iterables here
         if isinstance(retval, Ok):
@@ -889,7 +889,7 @@ class ServerBus(Singleton):
         ctx_dict["subfn__lsid"] = lsid
 
     def _check_norpc_mbody(
-            self, body: Mbody | type[Mbody], disp_ctx: str) -> Res[None]:
+            self, body: Msg | type[Msg], disp_ctx: str) -> Res[None]:
         """
         Since rpc msgs cannot participate in actions like "sub" and "pub",
         we have a separate fn to check this.
@@ -909,7 +909,7 @@ class ServerBus(Singleton):
 
     def _apply_opts_to_subfn(
             self, subfn: SubFn, opts: SubOpts) -> SubFn:
-        async def wrapper(msg: Mbody) -> Any:
+        async def wrapper(msg: Msg) -> Any:
             # globals are applied before locals
             inp_filters = [
                 *(self._cfg.global_subfn_inp_filters or []),

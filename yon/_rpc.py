@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel
 from ryz.res import Res
 
-from yon._msg import Mbody
+from yon._msg import Msg
 
 
 class EmptyRpcArgs(BaseModel):
@@ -57,5 +57,5 @@ class RpcFn(Protocol):
     # to accept any instance of BaseModel
     #
     # ...and we don't want to use generics here, for now
-    async def __call__(self, msg: Mbody) -> Res[Any]: ...
+    async def __call__(self, msg: Msg) -> Res[Any]: ...
 TRpcFn = TypeVar("TRpcFn", bound=RpcFn)

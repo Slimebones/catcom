@@ -17,7 +17,7 @@ from tests.conftest import (
 from yon import (
     ConArgs,
     InterruptPipeline,
-    Mbody,
+    Msg,
     PubList,
     PubOpts,
     ServerBus,
@@ -156,7 +156,7 @@ async def test_send_empty_data(sbus: ServerBus):
     con_task.cancel()
 
 async def test_global_subfn_conditions():
-    async def condition(data: Mbody) -> bool:
+    async def condition(data: Msg) -> bool:
         return data.num == 0
 
     flag = False
@@ -192,7 +192,7 @@ async def test_auth_example():
         def code():
             return "logout"
 
-    async def ifilter__auth(data: Mbody) -> Mbody:
+    async def ifilter__auth(data: Msg) -> Msg:
         sbus = ServerBus.ie()
         consid_res = sbus.get_ctx_consid()
         # skip inner messages
