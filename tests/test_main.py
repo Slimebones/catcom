@@ -86,8 +86,8 @@ async def test_lsid_net(sbus: ServerBus):
     await asyncio.wait_for(con.client__recv(), 1)
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
-        "body": {
+        "codeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "msg": {
             "num": 1
         }
     })
@@ -95,7 +95,7 @@ async def test_lsid_net(sbus: ServerBus):
     count = 0
     while not con.out_queue.empty():
         response = await asyncio.wait_for(con.client__recv(), 1)
-        response_data = response["body"]
+        response_data = response["msg"]
         count += 1
         if count == 1:
             assert response_data["num"] == 2
@@ -121,10 +121,10 @@ async def test_recv_empty_data(sbus: ServerBus):
     await asyncio.wait_for(con.client__recv(), 1)
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
+        "codeid": (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
-    assert response["bodycodeid"] == StaticCodeid.Ok
+    assert response["codeid"] == StaticCodeid.Ok
 
     con_task.cancel()
 
@@ -142,14 +142,14 @@ async def test_send_empty_data(sbus: ServerBus):
     await asyncio.wait_for(con.client__recv(), 1)
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
-        "body": {
+        "codeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "msg": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
     assert \
-        response["bodycodeid"] \
+        response["codeid"] \
         == (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     assert "data" not in response
 
@@ -239,65 +239,65 @@ async def test_auth_example():
     con_task = asyncio.create_task(sbus.con(con))
 
     await asyncio.wait_for(con.client__recv(), 1)
-    mock_1_bodycodeid = (await Code.get_regd_codeid_by_type(Mock_1)).eject()
-    valerr_bodycodeid = (await Code.get_regd_codeid_by_type(ValErr)).eject()
-    login_bodycodeid = (await Code.get_regd_codeid_by_type(Login)).eject()
-    logout_bodycodeid = (await Code.get_regd_codeid_by_type(Logout)).eject()
+    mock_1_codeid = (await Code.get_regd_codeid_by_type(Mock_1)).eject()
+    valerr_codeid = (await Code.get_regd_codeid_by_type(ValErr)).eject()
+    login_codeid = (await Code.get_regd_codeid_by_type(Login)).eject()
+    logout_codeid = (await Code.get_regd_codeid_by_type(Logout)).eject()
 
     # unregistered mock_1
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": mock_1_bodycodeid,
-        "body": {
+        "codeid": mock_1_codeid,
+        "msg": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
-    assert response["bodycodeid"] == valerr_bodycodeid
-    assert response["body"]["msg"] == "forbidden"
+    assert response["codeid"] == valerr_codeid
+    assert response["msg"]["msg"] == "forbidden"
 
     # register wrong username
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": login_bodycodeid,
-        "body": {
+        "codeid": login_codeid,
+        "msg": {
             "username": "wrong"
         }
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
-    assert response["bodycodeid"] == valerr_bodycodeid
-    assert response["body"]["msg"] == "wrong username wrong"
+    assert response["codeid"] == valerr_codeid
+    assert response["msg"]["msg"] == "wrong username wrong"
 
     # register right username
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": login_bodycodeid,
-        "body": {
+        "codeid": login_codeid,
+        "msg": {
             "username": "right"
         }
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
-    assert response["bodycodeid"] == StaticCodeid.Ok
+    assert response["codeid"] == StaticCodeid.Ok
     assert "right" in con.get_tokens(), "does not contain registered token"
 
     # registered mock_1
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": mock_1_bodycodeid,
-        "body": {
+        "codeid": mock_1_codeid,
+        "msg": {
             "num": 1
         }
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
-    assert response["bodycodeid"] == StaticCodeid.Ok
+    assert response["codeid"] == StaticCodeid.Ok
 
     # logout
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": logout_bodycodeid
+        "codeid": logout_codeid
     })
     response = await asyncio.wait_for(con.client__recv(), 1)
-    assert response["bodycodeid"] == StaticCodeid.Ok
+    assert response["codeid"] == StaticCodeid.Ok
     assert not con.get_tokens()
 
     con_task.cancel()

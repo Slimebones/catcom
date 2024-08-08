@@ -22,7 +22,7 @@ class EmptyRpcArgs(BaseModel):
 
 class SrpcSend(BaseModel):
     key: str
-    body: dict
+    data: dict
     """
     Any parseable kwargs passed to rpc fn.
     """

@@ -33,14 +33,14 @@ async def test_subfn(sbus: ServerBus):
     await asyncio.wait_for(con.client__recv(), 1)
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
-        "body": {
+        "codeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
+        "msg": {
             "num": 1
         }
     })
     rmsg = await asyncio.wait_for(con.client__recv(), 1)
     assert \
-        rmsg["bodycodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
+        rmsg["codeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
     con_task.cancel()
 
 async def test_rpc(sbus: ServerBus):
@@ -56,14 +56,14 @@ async def test_rpc(sbus: ServerBus):
     rpc_key = "update_email"
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
-        "body": {
+        "codeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
+        "msg": {
             "key": rpc_key,
-            "body": {"username": "test_username", "email": "test_email"}
+            "msg": {"username": "test_username", "email": "test_email"}
         }
     })
     rmsg = await asyncio.wait_for(con.client__recv(), 1)
-    assert rmsg["bodycodeid"] == \
+    assert rmsg["codeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
     con_task.cancel()
@@ -100,14 +100,14 @@ async def test_rpc_custom_ctx_manager():
     rpc_key = "update_email"
     await con.client__send({
         "sid": uuid4(),
-        "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
-        "body": {
+        "codeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
+        "msg": {
             "key": rpc_key,
-            "body": {}
+            "msg": {}
         }
     })
     rmsg = await asyncio.wait_for(con.client__recv(), 1)
-    assert rmsg["bodycodeid"] == \
+    assert rmsg["codeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
     con_task.cancel()

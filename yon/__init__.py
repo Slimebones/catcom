@@ -667,14 +667,14 @@ class ServerBus(Singleton):
 
         if isinstance(msg, Bmsg):
             bmsg = msg
-            msg = bmsg.body
-            code = bmsg.skip__bodycode
+            msg = bmsg.msg
+            code = bmsg.skip__code
         else:
             msg_res = self._make_msg(msg, opts)
             if isinstance(msg_res, Err):
                 return msg_res
             bmsg = msg_res.okval
-            code = bmsg.skip__bodycode
+            code = bmsg.skip__code
 
         r = self._check_norpc_mbody(bmsg, "publication")
         if isinstance(r, Err):
@@ -746,8 +746,8 @@ class ServerBus(Singleton):
 
         return Ok(Bmsg(
             lsid=lsid,
-            skip__bodycode=code,
-            body=body,
+            skip__code=code,
+            data=body,
             skip__target_consids=target_consids))
 
     async def _exec_pub_send_order(self, msg: Bmsg, opts: PubOpts):
@@ -759,13 +759,13 @@ class ServerBus(Singleton):
 
         if opts.send_to_net:
             await self._pub_msg_to_net(msg)
-        if opts.send_to_inner and msg.skip__bodycode in self._code_to_subfns:
+        if opts.send_to_inner and msg.skip__code in self._code_to_subfns:
             await self._send_to_inner_bus(msg)
         if msg.lsid:
             await self._send_as_linked(msg)
 
     async def _send_to_inner_bus(self, msg: Bmsg):
-        subfns = self._code_to_subfns[msg.skip__bodycode]
+        subfns = self._code_to_subfns[msg.skip__code]
         if not subfns:
             return
         for subfn in subfns:
@@ -829,12 +829,12 @@ class ServerBus(Singleton):
                 ctx_manager = (await self._cfg.sub_ctxfn(msg)).eject()
             except Exception as err:
                 await log.atrack(
-                    err, f"rpx ctx manager retrieval for body {msg.body}")
+                    err, f"rpx ctx manager retrieval for body {msg.msg}")
                 return
             async with ctx_manager:
-                retval = await subfn(msg.body)
+                retval = await subfn(msg.msg)
         else:
-            retval = await subfn(msg.body)
+            retval = await subfn(msg.msg)
 
         vals = self._parse_subfn_retval(subfn, retval)
         if not vals:
@@ -1000,10 +1000,10 @@ class ServerBus(Singleton):
             await con.send(rmsg)
 
     async def _accept_net_bmsg(self, bmsg: Bmsg):
-        if isinstance(bmsg.body, SrpcRecv):
+        if isinstance(bmsg.msg, SrpcRecv):
             log.err(f"server bus won't accept RpcRecv messages, got {bmsg}")
             return
-        elif isinstance(bmsg.body, SrpcSend):
+        elif isinstance(bmsg.msg, SrpcSend):
             # process rpc in a separate task to not block inp queue
             # processing
             task = asyncio.create_task(self._call_rpc(bmsg))
@@ -1019,7 +1019,7 @@ class ServerBus(Singleton):
                     PubOpts(lsid=bmsg.lsid))).atrack()
 
     async def _call_rpc(self, msg: Bmsg):
-        body = msg.body
+        body = msg.msg
         if body.key not in self._rpckey_to_fn:
             log.err(f"no such rpc code {body.key} for req {body} => skip")
             return
@@ -1064,9 +1064,9 @@ class ServerBus(Singleton):
         evt = Bmsg(
             lsid=msg.sid,
             skip__target_consids=[msg.skip__consid],
-            skip__bodycode=SrpcRecv.code(),
+            skip__code=SrpcRecv.code(),
             # pass val directly to optimize
-            body=val)
+            data=val)
         # we publish directly to the net since inner participants can't
         # subscribe to this
         await self._pub_msg_to_net(evt)
@@ -1119,8 +1119,9 @@ class ServerBus(Singleton):
         codes = codes_res.okval
         welcome = Welcome(codes=codes)
         self._preserialized_welcome_msg = (await Bmsg(
-            skip__bodycode=Welcome.code(),
-            body=welcome).serialize_to_net()).eject()
+            skip__code=Welcome.code(),
+            msg=welcome
+        ).serialize_to_net()).eject()
         rewelcome_res = await self._rewelcome_all_cons()
         if isinstance(rewelcome_res, Err):
             return rewelcome_res

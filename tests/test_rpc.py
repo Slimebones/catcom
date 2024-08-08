@@ -33,7 +33,7 @@ async def test_main(sbus: ServerBus):
     con_task_1 = asyncio.create_task(sbus.con(con_1))
 
     welcome_rmsg = await asyncio.wait_for(con_1.client__recv(), 1)
-    yon_rpc_req_bodycodeid = find_codeid_in_welcome_rmsg(
+    yon_rpc_req_codeid = find_codeid_in_welcome_rmsg(
         "yon::srpc_send", welcome_rmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
@@ -41,29 +41,29 @@ async def test_main(sbus: ServerBus):
     rpc_key = "update_email"
     await con_1.client__send({
         "sid": uuid4(),
-        "bodycodeid": yon_rpc_req_bodycodeid,
-        "body": {
+        "codeid": yon_rpc_req_codeid,
+        "msg": {
             "key": rpc_key,
-            "body": {"username": "test_username", "email": "test_email"}
+            "msg": {"username": "test_username", "email": "test_email"}
         }
     })
     rpc_recv = await asyncio.wait_for(con_1.client__recv(), 1)
-    rpc_body = rpc_recv["body"]
+    rpc_body = rpc_recv["msg"]
     assert rpc_body == 0
 
     rpc_key = "update_email"
     send_msid = uuid4()
     await con_1.client__send({
         "sid": send_msid,
-        "bodycodeid": yon_rpc_req_bodycodeid,
-        "body": {
+        "codeid": yon_rpc_req_codeid,
+        "msg": {
             "key": rpc_key,
-            "body": {"username": "throw", "email": "test_email"}
+            "msg": {"username": "throw", "email": "test_email"}
         }
     })
     rpc_recv = await asyncio.wait_for(con_1.client__recv(), 1)
     assert rpc_recv["lsid"] == send_msid
-    rpc_body = rpc_recv["body"]
+    rpc_body = rpc_recv["msg"]
     assert rpc_body["errcode"] == ValErr.code()
     assert rpc_body["msg"] == "hello"
     assert rpc_body["name"] == get_fqname(ValErr())

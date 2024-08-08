@@ -49,21 +49,21 @@ class Bmsg(BaseModel):
     """
 
     # since we won't change body type for an existing message, we keep
-    # code with the body. Also it's placed here and not in ``body`` to not
+    # code with the body. Also it's placed here and not in ``msg`` to not
     # interfere with custom fields, and for easier access
-    skip__bodycode: str
+    skip__code: str
     """
     Code of msg's body.
     """
-    body: Msg
+    msg: Msg
 
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, **body):
-        if "sid" not in body:
-            body["sid"] = uuid4()
-        super().__init__(**body)
+    def __init__(self, **data):
+        if "sid" not in data:
+            data["sid"] = uuid4()
+        super().__init__(**data)
 
     def __hash__(self) -> int:
         assert self.sid
@@ -74,7 +74,7 @@ class Bmsg(BaseModel):
     async def serialize_to_net(self) -> Res[dict]:
         final = self.model_dump()
 
-        body = final["body"]
+        body = final["msg"]
         # don't include empty collections in serialization
         if getattr(body, "__len__", None) is not None and len(body) == 0:
             body = None
@@ -86,10 +86,10 @@ class Bmsg(BaseModel):
                 return err_dto_res
             body = err_dto_res.okval.model_dump(exclude={"stacktrace"})
 
-        codeid_res = await Code.get_regd_codeid(self.skip__bodycode)
+        codeid_res = await Code.get_regd_codeid(self.skip__code)
         if isinstance(codeid_res, Err):
             return codeid_res
-        final["bodycodeid"] = codeid_res.okval
+        final["codeid"] = codeid_res.okval
 
         if "skip__consid" in final and final["skip__consid"] is not None:
             # consids must exist only inside server bus, it's probably an err
@@ -105,20 +105,20 @@ class Bmsg(BaseModel):
         for k in keys_to_del:
             del final[k]
 
-        final["body"] = body
-        if body is None and "body" in final:
-            del final["body"]
+        final["msg"] = body
+        if body is None and "msg" in final:
+            del final["msg"]
         return Ok(final)
 
     @classmethod
     async def _parse_rmsg_code(cls, rmsg: dict) -> Res[str]:
-        if "bodycodeid" not in rmsg:
-            return Err(ValErr(f"msg {rmsg} must have \"bodycodeid\" field"))
-        codeid = rmsg["bodycodeid"]
-        del rmsg["bodycodeid"]
+        if "codeid" not in rmsg:
+            return Err(ValErr(f"msg {rmsg} must have \"codeid\" field"))
+        codeid = rmsg["codeid"]
+        del rmsg["codeid"]
         if not isinstance(codeid, int):
             return Err(ValErr(
-                f"invalid type of bodycodeid {codeid}, expected int"))
+                f"invalid type of codeid {codeid}, expected int"))
 
         code_res = await Code.get_regd_code_by_id(codeid)
         if isinstance(code_res, Err):
@@ -149,7 +149,7 @@ class Bmsg(BaseModel):
 
     @classmethod
     async def _parse_rmsg_body(cls, rmsg: dict) -> Res[Msg]:
-        body = rmsg.get("body", None)
+        body = rmsg.get("msg", None)
 
         code_res = await cls._parse_rmsg_code(rmsg)
         if isinstance(code_res, Err):
@@ -197,9 +197,9 @@ class Bmsg(BaseModel):
 
         rmsg = rmsg.copy()
         # don't do redundant serialization of Any type
-        rmsg["body"] = None
+        rmsg["msg"] = None
         model = cls.model_validate(rmsg.copy())
-        model.body = body
+        model.msg = body
         return Ok(model)
 
 TMsg = TypeVar("TMsg", bound=Bmsg)
