@@ -1,3 +1,7 @@
+# 1.0.11
+
+- adjust bmsg fields
+
 # 1.0.10
 
 - separate concept of Bmsg and Msg
