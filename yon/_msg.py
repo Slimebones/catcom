@@ -15,7 +15,7 @@ Any custom body bus user interested in. Must be serializable and implement
 `code() -> str` method.
 """
 
-class BusMsg(BaseModel):
+class Bmsg(BaseModel):
     """
     Basic unit flowing in the bus.
 
@@ -208,7 +208,7 @@ class BusMsg(BaseModel):
         model.body = body
         return Ok(model)
 
-TMsg = TypeVar("TMsg", bound=BusMsg)
+TMsg = TypeVar("TMsg", bound=Bmsg)
 
 # lowercase to not conflict with result.Ok
 class ok(BaseModel):
