@@ -39,8 +39,8 @@ from yon._msg import (
 from yon._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend
 from yon._transport import (
     ActiveTransport,
-    Conn,
-    ConnArgs,
+    Con,
+    ConArgs,
     OnRecvFn,
     OnSendFn,
     Transport,
@@ -64,8 +64,8 @@ __all__ = [
     "EmptyRpcArgs",
     "StaticCodeid",
 
-    "Conn",
-    "ConnArgs",
+    "Con",
+    "ConArgs",
     "Transport",
     "Ws",
     "Udp",
@@ -142,11 +142,11 @@ class Internal__BusUnhandledErr(Exception):
 class PubOpts(BaseModel):
     subfn: SubFn | None = None
 
-    target_connsids: list[str] | None = None
+    target_consids: list[str] | None = None
     """
-    Connection sids to publish to.
+    Conection sids to publish to.
 
-    Defaults to only ctx connsid, if it exists.
+    Defaults to only ctx consid, if it exists.
     """
 
     lsid: str | None = None
@@ -216,14 +216,14 @@ class ServerBusCfg(BaseModel):
     List of available transport mechanisms.
 
     For each transport the server bus will be able to accept incoming
-    connections and treat them the same.
+    conections and treat them the same.
 
     "None" enables only default Websocket transport.
 
-    The transports should be managed externally, and established connections
-    are passed to ServerBus.conn, with ownership transfer.
+    The transports should be managed externally, and established conections
+    are passed to ServerBus.con, with ownership transfer.
 
-    If ServerBus.conn receive connection not listed in this list, an error
+    If ServerBus.con receive conection not listed in this list, an error
     will be returned.
     """
 
@@ -263,7 +263,7 @@ class ServerBus(Singleton):
     _rpckey_to_fn: ClassVar[dict[str, tuple[RpcFn, type[BaseModel]]]] = {}
     DEFAULT_TRANSPORT: ClassVar[Transport] = Transport(
         is_server=True,
-        conn_type=Ws,
+        con_type=Ws,
         max_inp_queue_size=10000,
         max_out_queue_size=10000,
         protocol="ws",
@@ -279,43 +279,43 @@ class ServerBus(Singleton):
     def __init__(self):
         self._is_initd = False
 
-    def get_conn_tokens(
-            self, connsid: str) -> Res[list[str]]:
-        conn = self._sid_to_conn.get(connsid, None)
-        if conn is None:
-            return valerr(f"no conn with sid {connsid}")
-        return Ok(conn.get_tokens())
+    def get_con_tokens(
+            self, consid: str) -> Res[list[str]]:
+        con = self._sid_to_con.get(consid, None)
+        if con is None:
+            return valerr(f"no con with sid {consid}")
+        return Ok(con.get_tokens())
 
-    def set_conn_tokens(
-            self, connsid: str, tokens: list[str]) -> Res[None]:
-        conn = self._sid_to_conn.get(connsid, None)
-        if conn is None:
-            return valerr(f"no conn with sid {connsid}")
-        conn.set_tokens(tokens)
+    def set_con_tokens(
+            self, consid: str, tokens: list[str]) -> Res[None]:
+        con = self._sid_to_con.get(consid, None)
+        if con is None:
+            return valerr(f"no con with sid {consid}")
+        con.set_tokens(tokens)
         return Ok(None)
 
-    def get_ctx_conn_tokens(self) -> Res[list[str]]:
-        connsid_res = self.get_ctx_connsid()
-        if isinstance(connsid_res, Err):
-            return connsid_res
-        return self.get_conn_tokens(connsid_res.okval)
+    def get_ctx_con_tokens(self) -> Res[list[str]]:
+        consid_res = self.get_ctx_consid()
+        if isinstance(consid_res, Err):
+            return consid_res
+        return self.get_con_tokens(consid_res.okval)
 
-    def set_ctx_conn_tokens(
+    def set_ctx_con_tokens(
             self, tokens: list[str]) -> Res[None]:
-        connsid_res = self.get_ctx_connsid()
-        if isinstance(connsid_res, Err):
-            return connsid_res
-        return self.set_conn_tokens(connsid_res.okval, tokens)
+        consid_res = self.get_ctx_consid()
+        if isinstance(consid_res, Err):
+            return consid_res
+        return self.set_con_tokens(consid_res.okval, tokens)
 
-    async def close_conn(self, connsid: str) -> Res[None]:
-        conn = self._sid_to_conn.get(connsid, None)
-        if conn is None:
-            return valerr(f"no conn with sid {connsid}")
-        if conn.is_closed:
+    async def close_con(self, consid: str) -> Res[None]:
+        con = self._sid_to_con.get(consid, None)
+        if con is None:
+            return valerr(f"no con with sid {consid}")
+        if con.is_closed:
             return valerr("already closed")
-        if connsid in self._sid_to_conn:
-            del self._sid_to_conn[connsid]
-        return await aresultify(conn.close())
+        if consid in self._sid_to_con:
+            del self._sid_to_con[consid]
+        return await aresultify(con.close())
 
     def get_ctx(self) -> dict:
         return _yon_ctx.get().copy()
@@ -328,7 +328,7 @@ class ServerBus(Singleton):
 
         self._init_transports()
 
-        self._sid_to_conn: dict[str, Conn] = {}
+        self._sid_to_con: dict[str, Con] = {}
 
         self._subsid_to_code: dict[str, str] = {}
         self._subsid_to_subfn: dict[str, SubFn] = {}
@@ -463,7 +463,7 @@ class ServerBus(Singleton):
         if not bus._is_initd: # noqa: SLF001
             return
 
-        for atransport in bus._conn_type_to_atransport.values(): # noqa: SLF001
+        for atransport in bus._con_type_to_atransport.values(): # noqa: SLF001
             atransport.inp_queue_processor.cancel()
             atransport.out_queue_processor.cancel()
 
@@ -472,39 +472,39 @@ class ServerBus(Singleton):
 
         ServerBus.try_discard()
 
-    async def conn(self, conn: Conn):
+    async def con(self, con: Con):
         if not self._is_post_initd:
             await self.postinit()
 
-        atransport = self._conn_type_to_atransport.get(type(conn), None)
+        atransport = self._con_type_to_atransport.get(type(con), None)
         if atransport is None:
             log.err(
-                f"cannot find regd transport for conn {conn}"
-                " => close conn")
+                f"cannot find regd transport for con {con}"
+                " => close con")
             with contextlib.suppress(Exception):
-                await conn.close()
+                await con.close()
         atransport = typing.cast(ActiveTransport, atransport)
 
-        if conn.sid in self._sid_to_conn:
-            log.err("conn with such sid already active => skip")
+        if con.sid in self._sid_to_con:
+            log.err("con with such sid already active => skip")
             return
 
-        log.info(f"accept new conn {conn}", 2)
-        self._sid_to_conn[conn.sid] = conn
+        log.info(f"accept new con {con}", 2)
+        self._sid_to_con[con.sid] = con
 
         try:
-            await conn.send(self._preserialized_welcome_msg)
-            await self._read_ws(conn, atransport)
+            await con.send(self._preserialized_welcome_msg)
+            await self._read_ws(con, atransport)
         except Exception as err:
-            await log.atrack(err, f"during conn {conn} main loop => close")
+            await log.atrack(err, f"during con {con} main loop => close")
         finally:
-            if not conn.is_closed():
+            if not con.is_closed():
                 try:
-                    await conn.close()
+                    await con.close()
                 except Exception as err:
-                    await log.atrack(err, f"during conn {conn} closing")
-            if conn.sid in self._sid_to_conn:
-                del self._sid_to_conn[conn.sid]
+                    await log.atrack(err, f"during con {con} closing")
+            if con.sid in self._sid_to_con:
+                del self._sid_to_con[con.sid]
 
     def _get_bodytype_from_subfn(
             self, subfn: SubFn[TMbody_contra]) -> Res[type[TMbody_contra]]:
@@ -640,8 +640,8 @@ class ServerBus(Singleton):
             return Ok(val)
         return Err(NotFoundErr(f"\"{key}\" entry in yon ctx"))
 
-    def get_ctx_connsid(self) -> Res[str]:
-        return self.get_ctx_key("connsid")
+    def get_ctx_consid(self) -> Res[str]:
+        return self.get_ctx_key("consid")
 
     async def pub(
         self,
@@ -732,21 +732,21 @@ class ServerBus(Singleton):
             return lsid_res
         lsid = lsid_res.okval
 
-        target_connsids = None
-        if opts.target_connsids:
-            target_connsids = opts.target_connsids
+        target_consids = None
+        if opts.target_consids:
+            target_consids = opts.target_consids
         else:
-            # try to get ctx connsid, otherwise left as none
-            connsid_res = self.get_ctx_key("connsid")
-            if isinstance(connsid_res, Ok):
-                assert isinstance(connsid_res.okval, str)
-                target_connsids = [connsid_res.okval]
+            # try to get ctx consid, otherwise left as none
+            consid_res = self.get_ctx_key("consid")
+            if isinstance(consid_res, Ok):
+                assert isinstance(consid_res.okval, str)
+                target_consids = [consid_res.okval]
 
         return Ok(Bmsg(
             lsid=lsid,
             skip__bodycode=code,
             body=body,
-            skip__target_connsids=target_connsids))
+            skip__target_consids=target_consids))
 
     async def _exec_pub_send_order(self, msg: Bmsg, opts: PubOpts):
         # SEND ORDER
@@ -770,27 +770,27 @@ class ServerBus(Singleton):
             await self._call_subfn(subfn, msg)
 
     async def _pub_msg_to_net(self, msg: Bmsg):
-        if msg.skip__target_connsids:
+        if msg.skip__target_consids:
             rmsg = (await msg.serialize_to_net()).unwrap_or(None)
             if rmsg is None:
                 return
-            await self._pub_rmsg_to_net(rmsg, msg.skip__target_connsids)
+            await self._pub_rmsg_to_net(rmsg, msg.skip__target_consids)
 
-    async def _pub_rmsg_to_net(self, rmsg: dict, connsids: Iterable[str]):
-        for connsid in connsids:
-            if connsid not in self._sid_to_conn:
+    async def _pub_rmsg_to_net(self, rmsg: dict, consids: Iterable[str]):
+        for consid in consids:
+            if consid not in self._sid_to_con:
                 log.err(
-                    f"no conn with id {connsid} for rmsg {rmsg}"
+                    f"no con with id {consid} for rmsg {rmsg}"
                     " => skip")
                 continue
-            conn = self._sid_to_conn[connsid]
-            conn_type = type(conn)
-            # if we have conn in self._sid_to_conn, we must have transport
-            if conn_type not in self._conn_type_to_atransport:
-                log.err("broken state of conn_type_to_atransport => skip")
+            con = self._sid_to_con[consid]
+            con_type = type(con)
+            # if we have con in self._sid_to_con, we must have transport
+            if con_type not in self._con_type_to_atransport:
+                log.err("broken state of con_type_to_atransport => skip")
                 continue
-            atransport = self._conn_type_to_atransport[conn_type]
-            await atransport.out_queue.put((conn, rmsg))
+            atransport = self._con_type_to_atransport[con_type]
+            await atransport.out_queue.put((con, rmsg))
 
     async def _send_as_linked(self, msg: Bmsg):
         if not msg.lsid:
@@ -809,8 +809,8 @@ class ServerBus(Singleton):
         ctx_dict = _yon_ctx.get().copy()
 
         ctx_dict["msid"] = msg.sid
-        if msg.skip__connsid:
-            ctx_dict["connsid"] = msg.skip__connsid
+        if msg.skip__consid:
+            ctx_dict["consid"] = msg.skip__consid
 
         return ctx_dict
 
@@ -943,37 +943,37 @@ class ServerBus(Singleton):
             return retbody
         return wrapper
 
-    async def _receive_from_conn(
+    async def _receive_from_con(
             self,
-            conn: Conn,
+            con: Con,
             atransport: ActiveTransport) -> dict:
         try:
             return await asyncio.wait_for(
-                conn.recv(),
+                con.recv(),
                 atransport.transport.inactivity_timeout)
         except TimeoutError as err:
             raise TimeoutError(
-                f"inactivity of conn {conn} for transport {atransport}"
+                f"inactivity of con {con} for transport {atransport}"
             ) from err
 
-    async def _read_ws(self, conn: Conn, atransport: ActiveTransport):
-        async for rmsg in conn:
+    async def _read_ws(self, con: Con, atransport: ActiveTransport):
+        async for rmsg in con:
             log.info(f"receive: {rmsg}", 2)
-            atransport.inp_queue.put_nowait((conn, rmsg))
+            atransport.inp_queue.put_nowait((con, rmsg))
 
     async def _process_inp_queue(
             self,
             transport: Transport,
-            queue: Queue[tuple[Conn, dict]]):
+            queue: Queue[tuple[Con, dict]]):
         while True:
-            conn, rmsg = await queue.get()
+            con, rmsg = await queue.get()
             if self._cfg.log_net_recv:
-                log.info(f"NET::RECV | {conn.sid} | {rmsg}")
+                log.info(f"NET::RECV | {con.sid} | {rmsg}")
             if transport.on_recv:
                 with contextlib.suppress(Exception):
-                    # we don't pass whole conn to avoid control leaks
-                    await transport.on_recv(conn.sid, rmsg)
-            msg_res = await self._parse_rmsg(rmsg, conn)
+                    # we don't pass whole con to avoid control leaks
+                    await transport.on_recv(con.sid, rmsg)
+            msg_res = await self._parse_rmsg(rmsg, con)
             if isinstance(msg_res, Err):
                 await msg_res.atrack()
                 continue
@@ -982,20 +982,20 @@ class ServerBus(Singleton):
     async def _process_out_queue(
             self,
             transport: Transport,
-            queue: Queue[tuple[Conn, dict]]):
+            queue: Queue[tuple[Con, dict]]):
         while True:
-            conn, rmsg = await queue.get()
+            con, rmsg = await queue.get()
 
             if self._cfg.log_net_send:
-                log.info(f"NET::SEND | {conn.sid} | {rmsg}")
+                log.info(f"NET::SEND | {con.sid} | {rmsg}")
 
             if transport.on_send:
                 with contextlib.suppress(Exception):
-                    await transport.on_send(conn.sid, rmsg)
+                    await transport.on_send(con.sid, rmsg)
 
-            log.info(f"send to connsid {conn.sid}: {rmsg}", 2)
+            log.info(f"send to consid {con.sid}: {rmsg}", 2)
 
-            await conn.send(rmsg)
+            await con.send(rmsg)
 
     async def _accept_net_bmsg(self, bmsg: Bmsg):
         if isinstance(bmsg.body, SrpcRecv):
@@ -1061,7 +1061,7 @@ class ServerBus(Singleton):
         # hood
         evt = Bmsg(
             lsid=msg.sid,
-            skip__target_connsids=[msg.skip__connsid],
+            skip__target_consids=[msg.skip__consid],
             skip__bodycode=SrpcRecv.code(),
             # pass val directly to optimize
             body=val)
@@ -1070,24 +1070,24 @@ class ServerBus(Singleton):
         await self._pub_msg_to_net(evt)
 
     async def _parse_rmsg(
-            self, rmsg: dict, conn: Conn) -> Res[Bmsg]:
+            self, rmsg: dict, con: Con) -> Res[Bmsg]:
         msid: str | None = rmsg.get("sid", None)
         if not msid:
             return valerr("msg without sid")
-        # msgs coming from net receive connection sid
-        rmsg["skip__connsid"] = conn.sid
+        # msgs coming from net receive conection sid
+        rmsg["skip__consid"] = con.sid
         msg_res = await Bmsg.deserialize_from_net(rmsg)
         return msg_res
 
     def _init_transports(self):
-        self._conn_type_to_atransport: dict[type[Conn], ActiveTransport] = {}
+        self._con_type_to_atransport: dict[type[Con], ActiveTransport] = {}
         transports = self._cfg.transports
         if not self._cfg.transports:
             transports = [self.DEFAULT_TRANSPORT]
         for transport in typing.cast(list[Transport], transports):
-            if transport.conn_type in self._conn_type_to_atransport:
+            if transport.con_type in self._con_type_to_atransport:
                 log.err(
-                    f"conn type {transport.conn_type} is already regd"
+                    f"con type {transport.con_type} is already regd"
                     " => skip")
                 continue
             if not transport.is_server:
@@ -1108,7 +1108,7 @@ class ServerBus(Singleton):
                 out_queue=out_queue,
                 inp_queue_processor=inp_task,
                 out_queue_processor=out_task)
-            self._conn_type_to_atransport[transport.conn_type] = atransport
+            self._con_type_to_atransport[transport.con_type] = atransport
 
     async def _set_welcome(self) -> Res[None]:
         codes_res = await Code.get_regd_codes()
@@ -1119,12 +1119,12 @@ class ServerBus(Singleton):
         self._preserialized_welcome_msg = (await Bmsg(
             skip__bodycode=Welcome.code(),
             body=welcome).serialize_to_net()).eject()
-        rewelcome_res = await self._rewelcome_all_conns()
+        rewelcome_res = await self._rewelcome_all_cons()
         if isinstance(rewelcome_res, Err):
             return rewelcome_res
         return Ok(None)
 
-    async def _rewelcome_all_conns(self) -> Res[None]:
+    async def _rewelcome_all_cons(self) -> Res[None]:
         return Ok(await self._pub_rmsg_to_net(
             self._preserialized_welcome_msg,
-            self._sid_to_conn.keys()))
+            self._sid_to_con.keys()))

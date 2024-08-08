@@ -2,11 +2,11 @@
 Transport layer of yon protocol.
 
 Communication is typically managed externally, yon only accept incoming
-connections.
+conections.
 
-For a server general guideline would be to setup external connection manager,
-and pass new established connections to ServerBus.conn method, where
-connection processing further relies on ServerBus.
+For a server general guideline would be to setup external conection manager,
+and pass new established conections to ServerBus.con method, where
+conection processing further relies on ServerBus.
 """
 from asyncio import Queue, Task
 from typing import Generic, Protocol, Self, TypeVar, runtime_checkable
@@ -14,29 +14,29 @@ from typing import Generic, Protocol, Self, TypeVar, runtime_checkable
 from pydantic import BaseModel
 from ryz.uuid import uuid4
 
-TConnCore = TypeVar("TConnCore")
+TConCore = TypeVar("TConCore")
 
-# we pass connsid to OnSend and OnRecv functions instead of Conn to
-# not allow these methods to operate on connection, but instead request
+# we pass consid to OnSend and OnRecv functions instead of Con to
+# not allow these methods to operate on conection, but instead request
 # required information about it via the bus
 @runtime_checkable
 class OnSendFn(Protocol):
-    async def __call__(self, connsid: str, rmsg: dict): ...
+    async def __call__(self, consid: str, rmsg: dict): ...
 
-# generic Protocol[TConnMsg] is not used due to variance issues
+# generic Protocol[TConMsg] is not used due to variance issues
 @runtime_checkable
 class OnRecvFn(Protocol):
-    async def __call__(self, connsid: str, rmsg: dict): ...
+    async def __call__(self, consid: str, rmsg: dict): ...
 
-class ConnArgs(BaseModel, Generic[TConnCore]):
-    core: TConnCore
+class ConArgs(BaseModel, Generic[TConCore]):
+    core: TConCore
 
     class Config:
         arbitrary_types_allowed = True
 
-class Conn(Generic[TConnCore]):
+class Con(Generic[TConCore]):
     """
-    Connection abstract class.
+    Conection abstract class.
 
     Methods "recv" and "send" always work with dicts, so implementations
     must perform necessary operations to convert incoming data to dict
@@ -44,7 +44,7 @@ class Conn(Generic[TConnCore]):
     bytes). This is dictated by the need to product yon.Msg objects, which
     can be conveniently done only through parsed dict object.
     """
-    def __init__(self, args: ConnArgs[TConnCore]) -> None:
+    def __init__(self, args: ConArgs[TConCore]) -> None:
         self._sid = uuid4()
         self._core = args.core
         self._is_closed = False
@@ -63,7 +63,7 @@ class Conn(Generic[TConnCore]):
 
     def get_tokens(self) -> list[str]:
         """
-        May also return empty tokens. This would mean that the conn is not yet
+        May also return empty tokens. This would mean that the con is not yet
         registered.
         """
         return self._tokens.copy()
@@ -85,7 +85,7 @@ class Conn(Generic[TConnCore]):
 
 class Transport(BaseModel):
     is_server: bool
-    conn_type: type[Conn]
+    con_type: type[Con]
 
     protocol: str = ""
     host: str = ""
@@ -101,14 +101,14 @@ class Transport(BaseModel):
     If less or equal than zero, no limitation is applied.
     """
 
-    # TODO: add "max_msgs_per_minute" to limit connection's activity
+    # TODO: add "max_msgs_per_minute" to limit conection's activity
 
     inactivity_timeout: float | None = None
     """
-    Default inactivity timeout for a connection.
+    Default inactivity timeout for a conection.
 
-    If nothing is received on a connection for this amount of time, it
-    is disconnected.
+    If nothing is received on a conection for this amount of time, it
+    is disconected.
 
     None means no timeout applied.
     """
@@ -139,8 +139,8 @@ class Transport(BaseModel):
 
 class ActiveTransport(BaseModel):
     transport: Transport
-    inp_queue: Queue[tuple[Conn, dict]]
-    out_queue: Queue[tuple[Conn, dict]]
+    inp_queue: Queue[tuple[Con, dict]]
+    out_queue: Queue[tuple[Con, dict]]
     inp_queue_processor: Task
     out_queue_processor: Task
 

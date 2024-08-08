@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from ryz.res import Ok, Res, valerr
 
 from yon import (
-    Conn,
-    ConnArgs,
+    Con,
+    ConArgs,
     ServerBus,
     ServerBusCfg,
     Transport,
@@ -48,7 +48,7 @@ async def sbus() -> ServerBus:
         transports=[
             Transport(
                 is_server=True,
-                conn_type=MockConn)
+                con_type=MockCon)
         ],
         reg_types=[
             Mock_1,
@@ -58,8 +58,8 @@ async def sbus() -> ServerBus:
     await asyncio.wait_for(bus.init(cfg), 1)
     return bus
 
-class MockConn(Conn[None]):
-    def __init__(self, args: ConnArgs[None]) -> None:
+class MockCon(Con[None]):
+    def __init__(self, args: ConArgs[None]) -> None:
         super().__init__(args)
         self.inp_queue: Queue[dict] = Queue()
         self.out_queue: Queue[dict] = Queue()

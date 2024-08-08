@@ -9,10 +9,10 @@ from ryz.uuid import uuid4
 
 from tests.conftest import (
     EmptyMock,
-    MockConn,
+    MockCon,
     find_codeid_in_welcome_rmsg,
 )
-from yon import ConnArgs, ServerBus, srpc
+from yon import ConArgs, ServerBus, srpc
 
 
 async def test_main(sbus: ServerBus):
@@ -28,18 +28,18 @@ async def test_main(sbus: ServerBus):
         assert email == "test_email"
         return Ok(0)
 
-    conn_1 = MockConn(ConnArgs(
+    con_1 = MockCon(ConArgs(
         core=None))
-    conn_task_1 = asyncio.create_task(sbus.conn(conn_1))
+    con_task_1 = asyncio.create_task(sbus.con(con_1))
 
-    welcome_rmsg = await asyncio.wait_for(conn_1.client__recv(), 1)
+    welcome_rmsg = await asyncio.wait_for(con_1.client__recv(), 1)
     yon_rpc_req_bodycodeid = find_codeid_in_welcome_rmsg(
         "yon::srpc_send", welcome_rmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
 
     rpc_key = "update_email"
-    await conn_1.client__send({
+    await con_1.client__send({
         "sid": uuid4(),
         "bodycodeid": yon_rpc_req_bodycodeid,
         "body": {
@@ -47,13 +47,13 @@ async def test_main(sbus: ServerBus):
             "body": {"username": "test_username", "email": "test_email"}
         }
     })
-    rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rpc_recv = await asyncio.wait_for(con_1.client__recv(), 1)
     rpc_body = rpc_recv["body"]
     assert rpc_body == 0
 
     rpc_key = "update_email"
     send_msid = uuid4()
-    await conn_1.client__send({
+    await con_1.client__send({
         "sid": send_msid,
         "bodycodeid": yon_rpc_req_bodycodeid,
         "body": {
@@ -61,14 +61,14 @@ async def test_main(sbus: ServerBus):
             "body": {"username": "throw", "email": "test_email"}
         }
     })
-    rpc_recv = await asyncio.wait_for(conn_1.client__recv(), 1)
+    rpc_recv = await asyncio.wait_for(con_1.client__recv(), 1)
     assert rpc_recv["lsid"] == send_msid
     rpc_body = rpc_recv["body"]
     assert rpc_body["errcode"] == ValErr.code()
     assert rpc_body["msg"] == "hello"
     assert rpc_body["name"] == get_fqname(ValErr())
 
-    conn_task_1.cancel()
+    con_task_1.cancel()
 
 async def test_srpc_decorator():
     @srpc

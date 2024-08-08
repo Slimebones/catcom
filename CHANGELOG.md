@@ -1,3 +1,7 @@
+# 1.0.10
+
+- separate concept of Bmsg and Msg
+
 # 1.0.9
 
 - change pykit to ryz

@@ -12,10 +12,10 @@ from tests.conftest import (
     EmptyMock,
     Mock_1,
     Mock_2,
-    MockConn,
+    MockCon,
 )
 from yon import (
-    ConnArgs,
+    ConArgs,
     InterruptPipeline,
     Mbody,
     PubList,
@@ -80,11 +80,11 @@ async def test_lsid_net(sbus: ServerBus):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
     await sbus.sub(sub__test)
-    conn = MockConn(ConnArgs(core=None))
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con = MockCon(ConArgs(core=None))
+    con_task = asyncio.create_task(sbus.con(con))
 
-    await asyncio.wait_for(conn.client__recv(), 1)
-    await conn.client__send({
+    await asyncio.wait_for(con.client__recv(), 1)
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
         "body": {
@@ -93,8 +93,8 @@ async def test_lsid_net(sbus: ServerBus):
     })
     await asyncio.sleep(0.1)
     count = 0
-    while not conn.out_queue.empty():
-        response = await asyncio.wait_for(conn.client__recv(), 1)
+    while not con.out_queue.empty():
+        response = await asyncio.wait_for(con.client__recv(), 1)
         response_data = response["body"]
         count += 1
         if count == 1:
@@ -105,7 +105,7 @@ async def test_lsid_net(sbus: ServerBus):
             raise AssertionError
     assert count == 2
 
-    conn_task.cancel()
+    con_task.cancel()
 
 async def test_recv_empty_data(sbus: ServerBus):
     """
@@ -115,18 +115,18 @@ async def test_recv_empty_data(sbus: ServerBus):
         return
 
     await sbus.sub(sub__test)
-    conn = MockConn(ConnArgs(core=None))
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con = MockCon(ConArgs(core=None))
+    con_task = asyncio.create_task(sbus.con(con))
 
-    await asyncio.wait_for(conn.client__recv(), 1)
-    await conn.client__send({
+    await asyncio.wait_for(con.client__recv(), 1)
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert response["bodycodeid"] == StaticCodeid.Ok
 
-    conn_task.cancel()
+    con_task.cancel()
 
 async def test_send_empty_data(sbus: ServerBus):
     """
@@ -136,24 +136,24 @@ async def test_send_empty_data(sbus: ServerBus):
         return Ok(EmptyMock())
 
     await sbus.sub(sub__test)
-    conn = MockConn(ConnArgs(core=None))
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con = MockCon(ConArgs(core=None))
+    con_task = asyncio.create_task(sbus.con(con))
 
-    await asyncio.wait_for(conn.client__recv(), 1)
-    await conn.client__send({
+    await asyncio.wait_for(con.client__recv(), 1)
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
         "body": {
             "num": 1
         }
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert \
         response["bodycodeid"] \
         == (await Code.get_regd_codeid_by_type(EmptyMock)).eject()
     assert "data" not in response
 
-    conn_task.cancel()
+    con_task.cancel()
 
 async def test_global_subfn_conditions():
     async def condition(data: Mbody) -> bool:
@@ -194,26 +194,26 @@ async def test_auth_example():
 
     async def ifilter__auth(data: Mbody) -> Mbody:
         sbus = ServerBus.ie()
-        connsid_res = sbus.get_ctx_connsid()
+        consid_res = sbus.get_ctx_consid()
         # skip inner messages
-        if isinstance(connsid_res, Err) or not connsid_res.okval:
+        if isinstance(consid_res, Err) or not consid_res.okval:
             return data
 
-        connsid = connsid_res.okval
-        tokens = sbus.get_conn_tokens(connsid).eject()
-        # if data is mock_1, the conn must have tokens
+        consid = consid_res.okval
+        tokens = sbus.get_con_tokens(consid).eject()
+        # if data is mock_1, the con must have tokens
         if isinstance(data, Mock_1) and not tokens:
             return InterruptPipeline(ValErr("forbidden"))
         return data
 
     async def sub__login(msg: Login):
         if msg.username == "right":
-            ServerBus.ie().set_ctx_conn_tokens(["right"])
+            ServerBus.ie().set_ctx_con_tokens(["right"])
             return None
         return valerr(f"wrong username {msg.username}")
 
     async def sub__logout(msg: Logout):
-        ServerBus.ie().set_ctx_conn_tokens([])
+        ServerBus.ie().set_ctx_con_tokens([])
 
     async def sub__mock_1(msg: Mock_1):
         return
@@ -223,7 +223,7 @@ async def test_auth_example():
         transports=[
             Transport(
                 is_server=True,
-                conn_type=MockConn)
+                con_type=MockCon)
         ],
         reg_types={Mock_1, Mock_2, Login, Logout},
         global_subfn_inp_filters={ifilter__auth}
@@ -235,72 +235,72 @@ async def test_auth_example():
     (await sbus.sub(sub__logout)).eject()
     (await sbus.sub(sub__mock_1)).eject()
 
-    conn = MockConn(ConnArgs(core=None))
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con = MockCon(ConArgs(core=None))
+    con_task = asyncio.create_task(sbus.con(con))
 
-    await asyncio.wait_for(conn.client__recv(), 1)
+    await asyncio.wait_for(con.client__recv(), 1)
     mock_1_bodycodeid = (await Code.get_regd_codeid_by_type(Mock_1)).eject()
     valerr_bodycodeid = (await Code.get_regd_codeid_by_type(ValErr)).eject()
     login_bodycodeid = (await Code.get_regd_codeid_by_type(Login)).eject()
     logout_bodycodeid = (await Code.get_regd_codeid_by_type(Logout)).eject()
 
     # unregistered mock_1
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": mock_1_bodycodeid,
         "body": {
             "num": 1
         }
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert response["bodycodeid"] == valerr_bodycodeid
     assert response["body"]["msg"] == "forbidden"
 
     # register wrong username
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": login_bodycodeid,
         "body": {
             "username": "wrong"
         }
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert response["bodycodeid"] == valerr_bodycodeid
     assert response["body"]["msg"] == "wrong username wrong"
 
     # register right username
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": login_bodycodeid,
         "body": {
             "username": "right"
         }
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert response["bodycodeid"] == StaticCodeid.Ok
-    assert "right" in conn.get_tokens(), "does not contain registered token"
+    assert "right" in con.get_tokens(), "does not contain registered token"
 
     # registered mock_1
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": mock_1_bodycodeid,
         "body": {
             "num": 1
         }
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert response["bodycodeid"] == StaticCodeid.Ok
 
     # logout
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": logout_bodycodeid
     })
-    response = await asyncio.wait_for(conn.client__recv(), 1)
+    response = await asyncio.wait_for(con.client__recv(), 1)
     assert response["bodycodeid"] == StaticCodeid.Ok
-    assert not conn.get_tokens()
+    assert not con.get_tokens()
 
-    conn_task.cancel()
+    con_task.cancel()
 
 async def test_sub_decorator():
     class Mock(BaseModel):

@@ -1,12 +1,12 @@
 # from aiohttp.web import WebSocketResponse as AiohttpWebsocket
 
-# from yon._transport import Conn, ConnArgs
+# from yon._transport import Con, ConArgs
 
 
 class Udp:
     pass
-# class Udp(Conn[TConnMsg]):
-#     def __init__(self, args: ConnArgs[AiohttpWebsocket]) -> None:
+# class Udp(Con[TConMsg]):
+#     def __init__(self, args: ConArgs[AiohttpWebsocket]) -> None:
 #         super().__init__(args)
 
 #     async def receive_json(self) -> WsMsg:

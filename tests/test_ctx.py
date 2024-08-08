@@ -6,12 +6,12 @@ from ryz.uuid import uuid4
 
 from tests.conftest import (
     Mock_1,
-    MockConn,
+    MockCon,
     get_mock_ctx_manager_for_msg,
     yon_mock_ctx,
 )
 from yon import (
-    ConnArgs,
+    ConArgs,
     EmptyRpcArgs,
     ServerBus,
     ServerBusCfg,
@@ -23,38 +23,38 @@ from yon import (
 
 
 async def test_subfn(sbus: ServerBus):
-    conn = MockConn(ConnArgs(core=None))
+    con = MockCon(ConArgs(core=None))
     async def sub__f(msg: Mock_1):
-        assert sbus.get_ctx()["connsid"] == conn.sid
+        assert sbus.get_ctx()["consid"] == con.sid
 
     await sbus.sub(sub__f)
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con_task = asyncio.create_task(sbus.con(con))
     # recv welcome
-    await asyncio.wait_for(conn.client__recv(), 1)
-    await conn.client__send({
+    await asyncio.wait_for(con.client__recv(), 1)
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(Mock_1)).eject(),
         "body": {
             "num": 1
         }
     })
-    rmsg = await asyncio.wait_for(conn.client__recv(), 1)
+    rmsg = await asyncio.wait_for(con.client__recv(), 1)
     assert \
         rmsg["bodycodeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
-    conn_task.cancel()
+    con_task.cancel()
 
 async def test_rpc(sbus: ServerBus):
-    conn = MockConn(ConnArgs(core=None))
+    con = MockCon(ConArgs(core=None))
     async def srpc__update_email(msg: EmptyRpcArgs) -> Res[int]:
-        assert sbus.get_ctx()["connsid"] == conn.sid
+        assert sbus.get_ctx()["consid"] == con.sid
         return Ok(0)
 
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con_task = asyncio.create_task(sbus.con(con))
     # recv welcome
-    await asyncio.wait_for(conn.client__recv(), 1)
+    await asyncio.wait_for(con.client__recv(), 1)
     ServerBus.reg_rpc(srpc__update_email).eject()
     rpc_key = "update_email"
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
         "body": {
@@ -62,11 +62,11 @@ async def test_rpc(sbus: ServerBus):
             "body": {"username": "test_username", "email": "test_email"}
         }
     })
-    rmsg = await asyncio.wait_for(conn.client__recv(), 1)
+    rmsg = await asyncio.wait_for(con.client__recv(), 1)
     assert rmsg["bodycodeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
-    conn_task.cancel()
+    con_task.cancel()
 
 async def test_sub_custom_ctx_manager():
     sbus = ServerBus.ie()
@@ -84,21 +84,21 @@ async def test_rpc_custom_ctx_manager():
         transports=[
             Transport(
                 is_server=True,
-                conn_type=MockConn)
+                con_type=MockCon)
         ],
         sub_ctxfn=get_mock_ctx_manager_for_msg))
 
-    conn = MockConn(ConnArgs(core=None))
+    con = MockCon(ConArgs(core=None))
     async def srpc__update_email(msg: EmptyRpcArgs) -> Res[int]:
         assert yon_mock_ctx.get()["name"] == "hello"
         return Ok(0)
 
-    conn_task = asyncio.create_task(sbus.conn(conn))
+    con_task = asyncio.create_task(sbus.con(con))
     # recv welcome
-    await asyncio.wait_for(conn.client__recv(), 1)
+    await asyncio.wait_for(con.client__recv(), 1)
     ServerBus.reg_rpc(srpc__update_email).eject()
     rpc_key = "update_email"
-    await conn.client__send({
+    await con.client__send({
         "sid": uuid4(),
         "bodycodeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
         "body": {
@@ -106,8 +106,8 @@ async def test_rpc_custom_ctx_manager():
             "body": {}
         }
     })
-    rmsg = await asyncio.wait_for(conn.client__recv(), 1)
+    rmsg = await asyncio.wait_for(con.client__recv(), 1)
     assert rmsg["bodycodeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
-    conn_task.cancel()
+    con_task.cancel()

@@ -24,11 +24,11 @@ class Bmsg(BaseModel):
     Fields prefixed with "skip__" won't pass net serialization process.
 
     Msgs are internal to yon implementation. The bus user is only interested
-    in the actual body he is operating on, and which connections they are
+    in the actual body he is operating on, and which conections they are
     operating with. And the Msg is just an underlying container for that.
 
     Note the difference:
-    * bus message - this class, contains connection and linking information
+    * bus message - this class, contains conection and linking information
     * app message (where `app` is a framework user) -
         anything that is ``Coded``, ``Serialize`` and optionally
         ``Deserialize``
@@ -41,17 +41,17 @@ class Bmsg(BaseModel):
     Used to send this message back to the owner of the message with this lsid.
     """
 
-    skip__connsid: str | None = None
+    skip__consid: str | None = None
     """
-    From which conn the msg is originated.
+    From which con the msg is originated.
 
     Only actual for the server. If set to None, it means that the msg is inner.
-    Otherwise it is always set to connsid.
+    Otherwise it is always set to consid.
     """
 
-    skip__target_connsids: list[str] | None = None
+    skip__target_consids: list[str] | None = None
     """
-    To which connsids the published msg should be addressed.
+    To which consids the published msg should be addressed.
     """
 
     # since we won't change body type for an existing message, we keep
@@ -97,13 +97,13 @@ class Bmsg(BaseModel):
             return codeid_res
         final["bodycodeid"] = codeid_res.okval
 
-        if "skip__connsid" in final and final["skip__connsid"] is not None:
-            # connsids must exist only inside server bus, it's probably an err
-            # if a msg is tried to be serialized with connsid, but we will
+        if "skip__consid" in final and final["skip__consid"] is not None:
+            # consids must exist only inside server bus, it's probably an err
+            # if a msg is tried to be serialized with consid, but we will
             # throw a warning for now, and ofcourse del the field
             log.warn(
-                "connsids must exist only inside server bus, but it is tried"
-                f" to serialize msg {self} with connsid != None => ignore"
+                "consids must exist only inside server bus, but it is tried"
+                f" to serialize msg {self} with consid != None => ignore"
             )
 
         keys_to_del = self._get_keys_to_del_from_serialized(final)
@@ -218,7 +218,7 @@ class ok(BaseModel):
 
 class Welcome(BaseModel):
     """
-    Welcome evt sent to every connected client.
+    Welcome evt sent to every conected client.
     """
     codes: list[str]
 

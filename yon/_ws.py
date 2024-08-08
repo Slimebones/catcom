@@ -3,22 +3,22 @@ from typing import Self
 from aiohttp import WSMsgType
 from aiohttp.web import WebSocketResponse as AiohttpWebsocket
 
-from yon._transport import Conn, ConnArgs
+from yon._transport import Con, ConArgs
 
 
-class Ws(Conn[AiohttpWebsocket]):
-    def __init__(self, args: ConnArgs[AiohttpWebsocket]) -> None:
+class Ws(Con[AiohttpWebsocket]):
+    def __init__(self, args: ConArgs[AiohttpWebsocket]) -> None:
         super().__init__(args)
 
     def __aiter__(self) -> Self:
         return self
 
     async def __anext__(self) -> dict:
-        connmsg = await self._core.receive()
-        if connmsg.type in (
+        conmsg = await self._core.receive()
+        if conmsg.type in (
                 WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
             raise StopAsyncIteration
-        return connmsg.json()
+        return conmsg.json()
 
     async def recv(self) -> dict:
         return await self._core.receive_json()
