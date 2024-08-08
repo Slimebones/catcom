@@ -19,9 +19,9 @@ async def test_main(sbus: ServerBus):
     class UpdEmailArgs(BaseModel):
         username: str
         email: str
-    async def srpc__update_email(body: UpdEmailArgs) -> Res[int]:
-        username = body.username
-        email = body.email
+    async def srpc__update_email(msg: UpdEmailArgs) -> Res[int]:
+        username = msg.username
+        email = msg.email
         if username == "throw":
             return Err(ValErr("hello"))
         assert username == "test_username"
@@ -72,14 +72,14 @@ async def test_main(sbus: ServerBus):
 
 async def test_srpc_decorator():
     @srpc
-    async def srpc__test(body: EmptyMock) -> Res[Any]:
+    async def srpc__test(msg: EmptyMock) -> Res[Any]:
         return Ok(None)
     bus = ServerBus.ie()
     await bus.init()
     assert "test" in bus._rpckey_to_fn  # noqa: SLF001
 
 async def test_reg_custom_rpc_key():
-    async def srpc__test(body: EmptyMock) -> Res[Any]:
+    async def srpc__test(msg: EmptyMock) -> Res[Any]:
         return Ok(None)
     bus = ServerBus.ie()
     await bus.init()

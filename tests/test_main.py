@@ -31,9 +31,9 @@ from yon import (
 async def test_pubsub(sbus: ServerBus):
     flag = False
 
-    async def sub__mock_1(body: Mock_1):
-        assert isinstance(body, Mock_1)
-        assert body.num == 1
+    async def sub__mock_1(msg: Mock_1):
+        assert isinstance(msg, Mock_1)
+        assert msg.num == 1
         nonlocal flag
         flag = True
 
@@ -50,9 +50,9 @@ async def test_data_static_indexes(sbus: ServerBus):
 async def test_pubsub_err(sbus: ServerBus):
     flag = False
 
-    async def sub__test(body: ValErr):
-        assert type(body) is ValErr
-        assert get_err_msg(body) == "hello"
+    async def sub__test(msg: ValErr):
+        assert type(msg) is ValErr
+        assert get_err_msg(msg) == "hello"
         nonlocal flag
         flag = True
 
@@ -61,9 +61,9 @@ async def test_pubsub_err(sbus: ServerBus):
     assert flag
 
 async def test_pubr(sbus: ServerBus):
-    async def sub__test(body: ValErr):
-        assert type(body) is ValErr
-        assert get_err_msg(body) == "hello"
+    async def sub__test(msg: ValErr):
+        assert type(msg) is ValErr
+        assert get_err_msg(msg) == "hello"
         return Ok(Mock_1(num=1))
 
     (await sbus.sub(sub__test)).eject()
@@ -76,7 +76,7 @@ async def test_lsid_net(sbus: ServerBus):
     """
     Tests correctness of published back to net responses.
     """
-    async def sub__test(body: Mock_1):
+    async def sub__test(msg: Mock_1):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
     await sbus.sub(sub__test)
@@ -111,7 +111,7 @@ async def test_recv_empty_data(sbus: ServerBus):
     """
     Should validate empty data rmsg, or data set to None to empty base models
     """
-    async def sub__test(body: EmptyMock):
+    async def sub__test(msg: EmptyMock):
         return
 
     await sbus.sub(sub__test)
@@ -132,7 +132,7 @@ async def test_send_empty_data(sbus: ServerBus):
     """
     Should validate empty data rmsg, or data set to None to empty base models
     """
-    async def sub__test(body: Mock_1):
+    async def sub__test(msg: Mock_1):
         return Ok(EmptyMock())
 
     await sbus.sub(sub__test)
@@ -160,9 +160,9 @@ async def test_global_subfn_conditions():
         return data.num == 0
 
     flag = False
-    async def sub__test(body: Mock_1):
+    async def sub__test(msg: Mock_1):
         # only mocks with num=0 should be passed
-        assert body.num == 0
+        assert msg.num == 0
         nonlocal flag
         assert not flag
         flag = True
@@ -206,16 +206,16 @@ async def test_auth_example():
             return InterruptPipeline(ValErr("forbidden"))
         return data
 
-    async def sub__login(body: Login):
-        if body.username == "right":
+    async def sub__login(msg: Login):
+        if msg.username == "right":
             ServerBus.ie().set_ctx_conn_tokens(["right"])
             return None
-        return valerr(f"wrong username {body.username}")
+        return valerr(f"wrong username {msg.username}")
 
-    async def sub__logout(body: Logout):
+    async def sub__logout(msg: Logout):
         ServerBus.ie().set_ctx_conn_tokens([])
 
-    async def sub__mock_1(body: Mock_1):
+    async def sub__mock_1(msg: Mock_1):
         return
 
     sbus = ServerBus.ie()
@@ -309,7 +309,7 @@ async def test_sub_decorator():
             return "mock"
 
     @sub
-    def sub__t(body: Mock) -> Any:
+    def sub__t(msg: Mock) -> Any:
         return
 
     sbus = ServerBus.ie()

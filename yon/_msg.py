@@ -15,7 +15,7 @@ Any custom body bus user interested in. Must be serializable and implement
 `code() -> str` method.
 """
 
-class Msg(BaseModel):
+class BusMsg(BaseModel):
     """
     Basic unit flowing in the bus.
 
@@ -26,6 +26,12 @@ class Msg(BaseModel):
     Msgs are internal to yon implementation. The bus user is only interested
     in the actual body he is operating on, and which connections they are
     operating with. And the Msg is just an underlying container for that.
+
+    Note the difference:
+    * bus message - this class, contains connection and linking information
+    * app message (where `app` is a framework user) -
+        anything that is ``Coded``, ``Serialize`` and optionally
+        ``Deserialize``
     """
     sid: str = ""
     lsid: str | None = None
@@ -202,7 +208,7 @@ class Msg(BaseModel):
         model.body = body
         return Ok(model)
 
-TMsg = TypeVar("TMsg", bound=Msg)
+TMsg = TypeVar("TMsg", bound=BusMsg)
 
 # lowercase to not conflict with result.Ok
 class ok(BaseModel):

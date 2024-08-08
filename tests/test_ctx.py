@@ -24,7 +24,7 @@ from yon import (
 
 async def test_subfn(sbus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
-    async def sub__f(body: Mock_1):
+    async def sub__f(msg: Mock_1):
         assert sbus.get_ctx()["connsid"] == conn.sid
 
     await sbus.sub(sub__f)
@@ -45,7 +45,7 @@ async def test_subfn(sbus: ServerBus):
 
 async def test_rpc(sbus: ServerBus):
     conn = MockConn(ConnArgs(core=None))
-    async def srpc__update_email(body: EmptyRpcArgs) -> Res[int]:
+    async def srpc__update_email(msg: EmptyRpcArgs) -> Res[int]:
         assert sbus.get_ctx()["connsid"] == conn.sid
         return Ok(0)
 
@@ -72,7 +72,7 @@ async def test_sub_custom_ctx_manager():
     sbus = ServerBus.ie()
     await sbus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
-    async def sub__f(body: Mock_1):
+    async def sub__f(msg: Mock_1):
         assert yon_mock_ctx.get()["name"] == "hello"
 
     await sbus.sub(sub__f)
@@ -89,7 +89,7 @@ async def test_rpc_custom_ctx_manager():
         sub_ctxfn=get_mock_ctx_manager_for_msg))
 
     conn = MockConn(ConnArgs(core=None))
-    async def srpc__update_email(body: EmptyRpcArgs) -> Res[int]:
+    async def srpc__update_email(msg: EmptyRpcArgs) -> Res[int]:
         assert yon_mock_ctx.get()["name"] == "hello"
         return Ok(0)
 
