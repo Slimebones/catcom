@@ -8,8 +8,9 @@ from ryz.log import log
 from ryz.res import Err, Ok, Res, resultify
 from ryz.uuid import uuid4
 
-TMsg_contra = TypeVar("TMsg_contra", contravariant=True)
 Msg = Any
+TMsg = TypeVar("TMsg", bound=Msg)
+TMsg_contra = TypeVar("TMsg_contra", contravariant=True, bound=Msg)
 """
 Any custom body bus user interested in. Must be serializable and implement
 `code() -> str` method.
@@ -148,15 +149,15 @@ class Bmsg(BaseModel):
         return keys_to_del
 
     @classmethod
-    async def _parse_rmsg_body(cls, rmsg: dict) -> Res[Msg]:
-        body = rmsg.get("msg", None)
+    async def _parse_rbmsg_msg(cls, rbmsg: dict) -> Res[Msg]:
+        body = rbmsg.get("msg", None)
 
-        code_res = await cls._parse_rmsg_code(rmsg)
+        code_res = await cls._parse_rmsg_code(rbmsg)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
 
-        rmsg["skip__bodycode"] = code
+        rbmsg["skip__code"] = code
 
         custom_type_res = await Code.get_regd_type_by_code(code)
         if isinstance(custom_type_res, Err):
@@ -184,26 +185,25 @@ class Bmsg(BaseModel):
         return resultify(final_deserialize_fn)
 
     @classmethod
-    async def deserialize_from_net(cls, rmsg: dict) -> Res[Self]:
+    async def deserialize_from_net(cls, rbmsg: dict) -> Res[Self]:
         """Recovers model of this class using dictionary."""
         # parse body separately according to it's regd type
-        body_res = await cls._parse_rmsg_body(rmsg)
-        if isinstance(body_res, Err):
-            return body_res
-        body = body_res.okval
+        msg = await cls._parse_rbmsg_msg(rbmsg)
+        if isinstance(msg, Err):
+            return msg
+        msg = msg.okval
 
-        if "lsid" not in rmsg:
-            rmsg["lsid"] = None
+        if "lsid" not in rbmsg:
+            rbmsg["lsid"] = None
 
-        rmsg = rmsg.copy()
+        rbmsg = rbmsg.copy()
         # don't do redundant serialization of Any type
-        rmsg["msg"] = None
-        model = cls.model_validate(rmsg.copy())
-        model.msg = body
-        return Ok(model)
+        rbmsg["msg"] = None
+        bmsg = cls.model_validate(rbmsg.copy())
+        bmsg.msg = msg
+        return Ok(bmsg)
 
-TMsg = TypeVar("TMsg", bound=Bmsg)
-
+TBmsg = TypeVar("TBmsg", bound=Bmsg)
 # lowercase to not conflict with result.Ok
 class ok(BaseModel):
     @staticmethod
