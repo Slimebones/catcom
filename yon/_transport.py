@@ -21,12 +21,12 @@ TConCore = TypeVar("TConCore")
 # required information about it via the bus
 @runtime_checkable
 class OnSendFn(Protocol):
-    async def __call__(self, consid: str, rmsg: dict): ...
+    async def __call__(self, consid: str, rbmsg: dict): ...
 
 # generic Protocol[TConMsg] is not used due to variance issues
 @runtime_checkable
 class OnRecvFn(Protocol):
-    async def __call__(self, consid: str, rmsg: dict): ...
+    async def __call__(self, consid: str, rbmsg: dict): ...
 
 class ConArgs(BaseModel, Generic[TConCore]):
     core: TConCore

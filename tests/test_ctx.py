@@ -38,9 +38,9 @@ async def test_subfn(sbus: ServerBus):
             "num": 1
         }
     })
-    rmsg = await asyncio.wait_for(con.client__recv(), 1)
+    rbmsg = await asyncio.wait_for(con.client__recv(), 1)
     assert \
-        rmsg["codeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
+        rbmsg["codeid"] == (await Code.get_regd_codeid_by_type(ok)).eject()
     con_task.cancel()
 
 async def test_rpc(sbus: ServerBus):
@@ -59,11 +59,11 @@ async def test_rpc(sbus: ServerBus):
         "codeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
         "msg": {
             "key": rpc_key,
-            "msg": {"username": "test_username", "email": "test_email"}
+            "data": {"username": "test_username", "email": "test_email"}
         }
     })
-    rmsg = await asyncio.wait_for(con.client__recv(), 1)
-    assert rmsg["codeid"] == \
+    rbmsg = await asyncio.wait_for(con.client__recv(), 1)
+    assert rbmsg["codeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
     con_task.cancel()
@@ -103,11 +103,11 @@ async def test_rpc_custom_ctx_manager():
         "codeid": (await Code.get_regd_codeid_by_type(SrpcSend)).eject(),
         "msg": {
             "key": rpc_key,
-            "msg": {}
+            "data": {}
         }
     })
-    rmsg = await asyncio.wait_for(con.client__recv(), 1)
-    assert rmsg["codeid"] == \
+    rbmsg = await asyncio.wait_for(con.client__recv(), 1)
+    assert rbmsg["codeid"] == \
         (await Code.get_regd_codeid_by_type(SrpcRecv)).eject()
 
     con_task.cancel()

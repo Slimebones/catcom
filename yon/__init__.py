@@ -2,6 +2,9 @@
 Yon implementation for Python.
 """
 
+# DEV TERMINOLOGY:
+#   * rbmsg - Raw Bus Message
+
 import asyncio
 import contextlib
 import functools
@@ -108,7 +111,7 @@ def srpc(target: RpcFn):
 
 class PubList(list[Msg]):
     """
-    List of mbody to be published.
+    List of messages to be published.
 
     Useful as retval from subfn to signify that this list should be unpacked
     and each item be published.
@@ -647,7 +650,7 @@ class ServerBus(Singleton):
 
     async def pub(
         self,
-        msg: Msg | Result,
+        msg: Msg | Result | Bmsg,
         opts: PubOpts = PubOpts()
     ) -> Res[None]:
         """
@@ -670,7 +673,7 @@ class ServerBus(Singleton):
             msg = bmsg.msg
             code = bmsg.skip__code
         else:
-            msg_res = self._make_msg(msg, opts)
+            msg_res = self._make_bmsg(msg, opts)
             if isinstance(msg_res, Err):
                 return msg_res
             bmsg = msg_res.okval
@@ -718,16 +721,19 @@ class ServerBus(Singleton):
             return valerr(f"unrecognized PubOpts.lsid operator: {lsid}")
         return Ok(lsid)
 
-    def _make_msg(
-            self, body: Msg, opts: PubOpts = PubOpts()) -> Res[Bmsg]:
-        code_res = Code.get_from_type(type(body))
+    def _make_bmsg(
+        self,
+        msg: Msg,
+        opts: PubOpts = PubOpts()
+    ) -> Res[Bmsg]:
+        code_res = Code.get_from_type(type(msg))
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
         if not Code.has_code(code):
             return valerr(f"code {code} is not registered")
 
-        body = self._unpack_err(body, self._cfg.trace_errs_on_pub)
+        msg = self._unpack_err(msg, self._cfg.trace_errs_on_pub)
 
         lsid_res = self._unpack_lsid(opts.lsid)
         if isinstance(lsid_res, Err):
@@ -747,10 +753,10 @@ class ServerBus(Singleton):
         return Ok(Bmsg(
             lsid=lsid,
             skip__code=code,
-            data=body,
+            msg=msg,
             skip__target_consids=target_consids))
 
-    async def _exec_pub_send_order(self, msg: Bmsg, opts: PubOpts):
+    async def _exec_pub_send_order(self, bmsg: Bmsg, opts: PubOpts):
         # SEND ORDER
         #
         #   1. Net
@@ -758,11 +764,11 @@ class ServerBus(Singleton):
         #   3. As a response
 
         if opts.send_to_net:
-            await self._pub_msg_to_net(msg)
-        if opts.send_to_inner and msg.skip__code in self._code_to_subfns:
-            await self._send_to_inner_bus(msg)
-        if msg.lsid:
-            await self._send_as_linked(msg)
+            await self._pub_bmsg_to_net(bmsg)
+        if opts.send_to_inner and bmsg.skip__code in self._code_to_subfns:
+            await self._send_to_inner_bus(bmsg)
+        if bmsg.lsid:
+            await self._send_as_linked(bmsg)
 
     async def _send_to_inner_bus(self, msg: Bmsg):
         subfns = self._code_to_subfns[msg.skip__code]
@@ -771,18 +777,18 @@ class ServerBus(Singleton):
         for subfn in subfns:
             await self._call_subfn(subfn, msg)
 
-    async def _pub_msg_to_net(self, msg: Bmsg):
-        if msg.skip__target_consids:
-            rmsg = (await msg.serialize_to_net()).unwrap_or(None)
-            if rmsg is None:
+    async def _pub_bmsg_to_net(self, bmsg: Bmsg):
+        if bmsg.skip__target_consids:
+            rbmsg = (await bmsg.serialize_to_net()).unwrap_or(None)
+            if rbmsg is None:
                 return
-            await self._pub_rmsg_to_net(rmsg, msg.skip__target_consids)
+            await self._pub_rbmsg_to_net(rbmsg, bmsg.skip__target_consids)
 
-    async def _pub_rmsg_to_net(self, rmsg: dict, consids: Iterable[str]):
+    async def _pub_rbmsg_to_net(self, rbmsg: dict, consids: Iterable[str]):
         for consid in consids:
             if consid not in self._sid_to_con:
                 log.err(
-                    f"no con with id {consid} for rmsg {rmsg}"
+                    f"no con with id {consid} for rbmsg {rbmsg}"
                     " => skip")
                 continue
             con = self._sid_to_con[consid]
@@ -792,7 +798,7 @@ class ServerBus(Singleton):
                 log.err("broken state of con_type_to_atransport => skip")
                 continue
             atransport = self._con_type_to_atransport[con_type]
-            await atransport.out_queue.put((con, rmsg))
+            await atransport.out_queue.put((con, rbmsg))
 
     async def _send_as_linked(self, msg: Bmsg):
         if not msg.lsid:
@@ -807,34 +813,34 @@ class ServerBus(Singleton):
         del self._lsid_to_subfn[lsid]
         return True
 
-    def _gen_ctx_dict_for_msg(self, msg: Bmsg) -> dict:
+    def _gen_ctx_dict_for_msg(self, bmsg: Bmsg) -> dict:
         ctx_dict = _yon_ctx.get().copy()
 
-        ctx_dict["msid"] = msg.sid
-        if msg.skip__consid:
-            ctx_dict["consid"] = msg.skip__consid
+        ctx_dict["msid"] = bmsg.sid
+        if bmsg.skip__consid:
+            ctx_dict["consid"] = bmsg.skip__consid
 
         return ctx_dict
 
-    async def _call_subfn(self, subfn: SubFn, msg: Bmsg):
+    async def _call_subfn(self, subfn: SubFn, bmsg: Bmsg):
         """
         Calls subfn and pubs any response captured (including errors).
 
         Note that even None response is published as ok(None).
         """
-        _yon_ctx.set(self._gen_ctx_dict_for_msg(msg))
+        _yon_ctx.set(self._gen_ctx_dict_for_msg(bmsg))
 
         if self._cfg.sub_ctxfn is not None:
             try:
-                ctx_manager = (await self._cfg.sub_ctxfn(msg)).eject()
+                ctx_manager = (await self._cfg.sub_ctxfn(bmsg)).eject()
             except Exception as err:
                 await log.atrack(
-                    err, f"rpx ctx manager retrieval for body {msg.msg}")
+                    err, f"rpx ctx manager retrieval for body {bmsg.msg}")
                 return
             async with ctx_manager:
-                retval = await subfn(msg.msg)
+                retval = await subfn(bmsg.msg)
         else:
-            retval = await subfn(msg.msg)
+            retval = await subfn(bmsg.msg)
 
         vals = self._parse_subfn_retval(subfn, retval)
         if not vals:
@@ -959,45 +965,45 @@ class ServerBus(Singleton):
             ) from err
 
     async def _read_ws(self, con: Con, atransport: ActiveTransport):
-        async for rmsg in con:
-            log.info(f"receive: {rmsg}", 2)
-            atransport.inp_queue.put_nowait((con, rmsg))
+        async for rbmsg in con:
+            log.info(f"receive: {rbmsg}", 2)
+            atransport.inp_queue.put_nowait((con, rbmsg))
 
     async def _process_inp_queue(
             self,
             transport: Transport,
             queue: Queue[tuple[Con, dict]]):
         while True:
-            con, rmsg = await queue.get()
+            con, rbmsg = await queue.get()
             if self._cfg.log_net_recv:
-                log.info(f"NET::RECV | {con.sid} | {rmsg}")
+                log.info(f"NET::RECV | {con.sid} | {rbmsg}")
             if transport.on_recv:
                 with contextlib.suppress(Exception):
                     # we don't pass whole con to avoid control leaks
-                    await transport.on_recv(con.sid, rmsg)
-            msg_res = await self._parse_rmsg(rmsg, con)
-            if isinstance(msg_res, Err):
-                await msg_res.atrack()
+                    await transport.on_recv(con.sid, rbmsg)
+            bmsg = await self._parse_rbmsg(rbmsg, con)
+            if isinstance(bmsg, Err):
+                await bmsg.atrack()
                 continue
-            await self._accept_net_bmsg(msg_res.okval)
+            await self._accept_net_bmsg(bmsg.okval)
 
     async def _process_out_queue(
             self,
             transport: Transport,
             queue: Queue[tuple[Con, dict]]):
         while True:
-            con, rmsg = await queue.get()
+            con, rbmsg = await queue.get()
 
             if self._cfg.log_net_send:
-                log.info(f"NET::SEND | {con.sid} | {rmsg}")
+                log.info(f"NET::SEND | {con.sid} | {rbmsg}")
 
             if transport.on_send:
                 with contextlib.suppress(Exception):
-                    await transport.on_send(con.sid, rmsg)
+                    await transport.on_send(con.sid, rbmsg)
 
-            log.info(f"send to consid {con.sid}: {rmsg}", 2)
+            log.info(f"send to consid {con.sid}: {rbmsg}", 2)
 
-            await con.send(rmsg)
+            await con.send(rbmsg)
 
     async def _accept_net_bmsg(self, bmsg: Bmsg):
         if isinstance(bmsg.msg, SrpcRecv):
@@ -1011,40 +1017,42 @@ class ServerBus(Singleton):
             task.add_done_callback(self._rpc_tasks.discard)
             return
         # publish to inner bus with no duplicate net resending
-        pub_res = await self.pub(bmsg, PubOpts(send_to_net=False))
-        if isinstance(pub_res, Err):
+        pub = await self.pub(bmsg, PubOpts(send_to_net=False))
+        if isinstance(pub, Err):
             await (
                 await self.pub(
-                    pub_res,
-                    PubOpts(lsid=bmsg.lsid))).atrack()
+                    pub,
+                    PubOpts(lsid=bmsg.lsid)
+                )
+            ).atrack()
 
-    async def _call_rpc(self, msg: Bmsg):
-        body = msg.msg
-        if body.key not in self._rpckey_to_fn:
-            log.err(f"no such rpc code {body.key} for req {body} => skip")
+    async def _call_rpc(self, bmsg: Bmsg):
+        msg = bmsg.msg
+        if msg.key not in self._rpckey_to_fn:
+            log.err(f"no such rpc code {msg.key} for req {msg} => skip")
             return
-        fn, args_type = self._rpckey_to_fn[body.key]
+        fn, args_type = self._rpckey_to_fn[msg.key]
 
-        _yon_ctx.set(self._gen_ctx_dict_for_msg(msg))
+        _yon_ctx.set(self._gen_ctx_dict_for_msg(bmsg))
 
         ctx_manager: CtxManager | None = None
         if self._cfg.rpc_ctxfn is not None:
             try:
-                ctx_manager = (await self._cfg.rpc_ctxfn(body)).eject()
+                ctx_manager = (await self._cfg.rpc_ctxfn(msg)).eject()
             except Exception as err:
                 await log.atrack(
                     err,
-                    f"rpx ctx manager retrieval for body {body} => skip")
+                    f"rpx ctx manager retrieval for body {msg} => skip")
                 return
         try:
             if ctx_manager:
                 async with ctx_manager:
-                    res = await fn(args_type.model_validate(body.body))
+                    res = await fn(args_type.model_validate(msg.data))
             else:
-                res = await fn(args_type.model_validate(body.body))
+                res = await fn(args_type.model_validate(msg.data))
         except Exception as err:
             await log.atrack(
-                err, f"rpcfn on req {body} => wrap to usual RpcRecv")
+                err, f"rpcfn on req {msg} => wrap to usual RpcRecv")
             res = Err(err)
 
         val: Any
@@ -1055,31 +1063,33 @@ class ServerBus(Singleton):
             val = typing.cast(ErrDto, val).model_dump(exclude={"stacktrace"})
         else:
             log.err(
-                f"rpcfn on req {body} returned non-res val {res} => skip")
+                f"rpcfn on req {msg} returned non-res val {res} => skip")
             return
 
         # val must be any serializable by pydantic object, so here we pass it
         # directly to Msg, which will do serialization automatically under the
         # hood
         evt = Bmsg(
-            lsid=msg.sid,
-            skip__target_consids=[msg.skip__consid],
+            lsid=bmsg.sid,
+            skip__target_consids=[bmsg.skip__consid],
             skip__code=SrpcRecv.code(),
             # pass val directly to optimize
-            data=val)
+            msg=val
+        )
         # we publish directly to the net since inner participants can't
         # subscribe to this
-        await self._pub_msg_to_net(evt)
+        await self._pub_bmsg_to_net(evt)
 
-    async def _parse_rmsg(
-            self, rmsg: dict, con: Con) -> Res[Bmsg]:
-        msid: str | None = rmsg.get("sid", None)
+    async def _parse_rbmsg(
+        self, rbmsg: dict, con: Con
+    ) -> Res[Bmsg]:
+        msid: str | None = rbmsg.get("sid", None)
         if not msid:
             return valerr("msg without sid")
         # msgs coming from net receive conection sid
-        rmsg["skip__consid"] = con.sid
-        msg_res = await Bmsg.deserialize_from_net(rmsg)
-        return msg_res
+        rbmsg["skip__consid"] = con.sid
+        bmsg = await Bmsg.deserialize_from_net(rbmsg)
+        return bmsg
 
     def _init_transports(self):
         self._con_type_to_atransport: dict[type[Con], ActiveTransport] = {}
@@ -1128,6 +1138,6 @@ class ServerBus(Singleton):
         return Ok(None)
 
     async def _rewelcome_all_cons(self) -> Res[None]:
-        return Ok(await self._pub_rmsg_to_net(
+        return Ok(await self._pub_rbmsg_to_net(
             self._preserialized_welcome_msg,
             self._sid_to_con.keys()))

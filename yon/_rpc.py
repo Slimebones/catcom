@@ -36,7 +36,7 @@ class SrpcRecv(BaseModel):
     Only ``val`` field directly passed to serialization, so the msg's body
     contain this directly.
     """
-    val: Any
+    data: Any
     """
     Returned value can be anything serializable or an exception, which will
     be serialized to ErrDto.

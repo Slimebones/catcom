@@ -98,8 +98,8 @@ async def get_mock_ctx_manager_for_msg(_) -> Res[MockCtxManager]:
 async def get_mock_ctx_manager_for_srpc_send(_) -> Res[MockCtxManager]:
     return Ok(MockCtxManager())
 
-def find_codeid_in_welcome_rmsg(code: str, rmsg: dict) -> Res[int]:
-    for i, code_container in enumerate(rmsg["msg"]["codes"]):
+def find_codeid_in_welcome_rbmsg(code: str, rbmsg: dict) -> Res[int]:
+    for i, code_container in enumerate(rbmsg["msg"]["codes"]):
         if code in code_container:
             return Ok(i)
     return valerr(code)

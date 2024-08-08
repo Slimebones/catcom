@@ -112,11 +112,11 @@ class Bmsg(BaseModel):
         return Ok(final)
 
     @classmethod
-    async def _parse_rmsg_code(cls, rmsg: dict) -> Res[str]:
-        if "codeid" not in rmsg:
-            return Err(ValErr(f"msg {rmsg} must have \"codeid\" field"))
-        codeid = rmsg["codeid"]
-        del rmsg["codeid"]
+    async def _parse_rbmsg_code(cls, rbmsg: dict) -> Res[str]:
+        if "codeid" not in rbmsg:
+            return Err(ValErr(f"msg {rbmsg} must have \"codeid\" field"))
+        codeid = rbmsg["codeid"]
+        del rbmsg["codeid"]
         if not isinstance(codeid, int):
             return Err(ValErr(
                 f"invalid type of codeid {codeid}, expected int"))
@@ -145,14 +145,14 @@ class Bmsg(BaseModel):
                     or k.startswith(("internal__", "skip__"))):
                 keys_to_del.append(k)
         if not is_msid_found:
-            raise ValueError(f"no sid field for rmsg {body}")
+            raise ValueError(f"no sid field for rbmsg {body}")
         return keys_to_del
 
     @classmethod
     async def _parse_rbmsg_msg(cls, rbmsg: dict) -> Res[Msg]:
-        body = rbmsg.get("msg", None)
+        msg = rbmsg.get("msg", None)
 
-        code_res = await cls._parse_rmsg_code(rbmsg)
+        code_res = await cls._parse_rbmsg_code(rbmsg)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
@@ -167,20 +167,20 @@ class Bmsg(BaseModel):
         deserialize_custom = getattr(custom_type, "deserialize", None)
         final_deserialize_fn: Callable[[], Any]
         if issubclass(custom_type, BaseModel):
-            # for case of rmsg with empty body field, we'll try to initialize
+            # for case of rbmsg with empty body field, we'll try to initialize
             # the type without any fields (empty dict)
-            if body is None:
-                body = {}
-            elif not isinstance(body, dict):
+            if msg is None:
+                msg = {}
+            elif not isinstance(msg, dict):
                 return Err(ValErr(
                     f"if custom type ({custom_type}) is a BaseModel, body"
-                    f" {body} must be a dict, got type {type(body)}"))
-            final_deserialize_fn = lambda: custom_type(**body)
+                    f" {msg} must be a dict, got type {type(msg)}"))
+            final_deserialize_fn = lambda: custom_type(**msg)
         elif deserialize_custom is not None:
-            final_deserialize_fn = lambda: deserialize_custom(body)
+            final_deserialize_fn = lambda: deserialize_custom(msg)
         else:
             # for arbitrary types: just pass body as init first arg
-            final_deserialize_fn = lambda: custom_type(body)
+            final_deserialize_fn = lambda: custom_type(msg)
 
         return resultify(final_deserialize_fn)
 
@@ -209,6 +209,9 @@ class ok(BaseModel):
     @staticmethod
     def code() -> str:
         return "yon::ok"
+
+    def __str__(self) -> str:
+        return "ok message"
 
 class Welcome(BaseModel):
     """

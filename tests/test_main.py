@@ -109,7 +109,7 @@ async def test_lsid_net(sbus: ServerBus):
 
 async def test_recv_empty_data(sbus: ServerBus):
     """
-    Should validate empty data rmsg, or data set to None to empty base models
+    Should validate empty data rbmsg, or data set to None to empty base models
     """
     async def sub__test(msg: EmptyMock):
         return
@@ -130,7 +130,7 @@ async def test_recv_empty_data(sbus: ServerBus):
 
 async def test_send_empty_data(sbus: ServerBus):
     """
-    Should validate empty data rmsg, or data set to None to empty base models
+    Should validate empty data rbmsg, or data set to None to empty base models
     """
     async def sub__test(msg: Mock_1):
         return Ok(EmptyMock())
@@ -178,7 +178,7 @@ async def test_global_subfn_conditions():
 
 async def test_auth_example():
     """
-    Should validate empty data rmsg, or data set to None to empty base models
+    Should validate empty data rbmsg, or data set to None to empty base models
     """
     class Login(BaseModel):
         username: str

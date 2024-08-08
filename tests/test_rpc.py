@@ -10,7 +10,7 @@ from ryz.uuid import uuid4
 from tests.conftest import (
     EmptyMock,
     MockCon,
-    find_codeid_in_welcome_rmsg,
+    find_codeid_in_welcome_rbmsg,
 )
 from yon import ConArgs, ServerBus, srpc
 
@@ -32,9 +32,9 @@ async def test_main(sbus: ServerBus):
         core=None))
     con_task_1 = asyncio.create_task(sbus.con(con_1))
 
-    welcome_rmsg = await asyncio.wait_for(con_1.client__recv(), 1)
-    yon_rpc_req_codeid = find_codeid_in_welcome_rmsg(
-        "yon::srpc_send", welcome_rmsg).eject()
+    welcome_rbmsg = await asyncio.wait_for(con_1.client__recv(), 1)
+    yon_rpc_req_codeid = find_codeid_in_welcome_rbmsg(
+        "yon::srpc_send", welcome_rbmsg).eject()
 
     ServerBus.reg_rpc(srpc__update_email).eject()
 
@@ -44,12 +44,12 @@ async def test_main(sbus: ServerBus):
         "codeid": yon_rpc_req_codeid,
         "msg": {
             "key": rpc_key,
-            "msg": {"username": "test_username", "email": "test_email"}
+            "data": {"username": "test_username", "email": "test_email"}
         }
     })
-    rpc_recv = await asyncio.wait_for(con_1.client__recv(), 1)
-    rpc_body = rpc_recv["msg"]
-    assert rpc_body == 0
+    rpc_rbmsg = await asyncio.wait_for(con_1.client__recv(), 1)
+    rpc_msg = rpc_rbmsg["msg"]
+    assert rpc_msg == 0
 
     rpc_key = "update_email"
     send_msid = uuid4()
@@ -58,15 +58,15 @@ async def test_main(sbus: ServerBus):
         "codeid": yon_rpc_req_codeid,
         "msg": {
             "key": rpc_key,
-            "msg": {"username": "throw", "email": "test_email"}
+            "data": {"username": "throw", "email": "test_email"}
         }
     })
-    rpc_recv = await asyncio.wait_for(con_1.client__recv(), 1)
-    assert rpc_recv["lsid"] == send_msid
-    rpc_body = rpc_recv["msg"]
-    assert rpc_body["errcode"] == ValErr.code()
-    assert rpc_body["msg"] == "hello"
-    assert rpc_body["name"] == get_fqname(ValErr())
+    rpc_rbmsg = await asyncio.wait_for(con_1.client__recv(), 1)
+    assert rpc_rbmsg["lsid"] == send_msid
+    rpc_msg = rpc_rbmsg["msg"]
+    assert rpc_msg["errcode"] == ValErr.code()
+    assert rpc_msg["msg"] == "hello"
+    assert rpc_msg["name"] == get_fqname(ValErr())
 
     con_task_1.cancel()
 
