@@ -52,6 +52,8 @@ __all__ = [
     "ServerBus",
     "SubFn",
     "ok",
+    "SubOpts",
+    "PubOpts",
 
     "ResourceServerErr",
 

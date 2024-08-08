@@ -1,6 +1,8 @@
 # 1.0.10
 
 - separate concept of Bmsg and Msg
+- rename Conn -> Con
+- export SubOpts, PubOpts
 
 # 1.0.9
 
