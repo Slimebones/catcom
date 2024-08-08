@@ -89,7 +89,7 @@ class StaticCodeid:
 SubFnRetval = Mbody | Iterable[Mbody] | None
 @runtime_checkable
 class SubFn(Protocol, Generic[TMbody_contra]):
-    async def __call__(self, body: TMbody_contra) -> SubFnRetval: ...
+    async def __call__(self, msg: TMbody_contra) -> SubFnRetval: ...
 
 def sub(target: SubFn):
     ServerBus.subfn_init_queue.add(target)
@@ -610,7 +610,7 @@ class ServerBus(Singleton):
         ptr: Ptr[Mbody] = Ptr(target=None)
 
         def wrapper(aevt: asyncio.Event, ptr: Ptr[Mbody]):
-            async def fn(body: Mbody):
+            async def fn(msg: Mbody):
                 aevt.set()
                 ptr.target = body
             return fn

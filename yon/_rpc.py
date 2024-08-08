@@ -57,5 +57,5 @@ class RpcFn(Protocol):
     # to accept any instance of BaseModel
     #
     # ...and we don't want to use generics here, for now
-    async def __call__(self, body: Mbody) -> Res[Any]: ...
+    async def __call__(self, msg: Mbody) -> Res[Any]: ...
 TRpcFn = TypeVar("TRpcFn", bound=RpcFn)
