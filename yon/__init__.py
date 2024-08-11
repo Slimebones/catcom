@@ -172,7 +172,7 @@ class PubOpts(BaseModel):
     Will send to net if True and code is defined for the msg passed.
     """
 
-    pubr__timeout: float | None = None
+    pubr_timeout: float | None = None
     """
     Timeout of awaiting for published message response arrival. Defaults to
     None, which means no timeout is set.
@@ -425,13 +425,13 @@ class ServerBus(Singleton):
         Reg server rpc (srpc).
         """
         fn_name = fn.__name__  # type: ignore
-        if not fn_name.startswith("srpc__"):
-            return Err(ValErr(f"rpc fn {fn} name must start with \"srpc__\""))
+        if not fn_name.startswith("srpc_"):
+            return Err(ValErr(f"rpc fn {fn} name must start with \"srpc_\""))
 
         if custom_rpc_key:
             rpc_key = custom_rpc_key
         else:
-            rpc_key = fn_name.replace("srpc__", "")
+            rpc_key = fn_name.replace("srpc_", "")
 
         if rpc_key in cls._rpckey_to_fn:
             return Err(ValErr(f"rpc key {rpc_key} is already regd"))
@@ -547,9 +547,9 @@ class ServerBus(Singleton):
         bodytype = bodytype_res.okval
 
         if (
-                not subfn.__name__.startswith("sub__")  # type: ignore
+                not subfn.__name__.startswith("sub_")  # type: ignore
                 and opts.warn_unconventional_subfn_names):
-            log.warn(f"prefix subscription function {subfn} with \"sub__\"")
+            log.warn(f"prefix subscription function {subfn} with \"sub_\"")
 
         r = self._check_norpc_mbody(bodytype, "subscription")
         if isinstance(r, Err):
@@ -626,11 +626,11 @@ class ServerBus(Singleton):
         pub_res = await self.pub(msg, opts)
         if isinstance(pub_res, Err):
             return pub_res
-        if opts.pubr__timeout is None:
+        if opts.pubr_timeout is None:
             await aevt.wait()
         else:
             try:
-                await asyncio.wait_for(aevt.wait(), opts.pubr__timeout)
+                await asyncio.wait_for(aevt.wait(), opts.pubr_timeout)
             except asyncio.TimeoutError as err:
                 return Err(err)
 

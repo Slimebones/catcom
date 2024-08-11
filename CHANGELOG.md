@@ -1,6 +1,7 @@
 # 1.0.11
 
 - adjust bmsg fields
+- disallow use of double underscores for sub and rpc functions
 
 # 1.0.10
 
@@ -28,7 +29,7 @@
 
 # 1.0.5
 
-- rpc: remove "srpc__" prefix from rpc key
+- rpc: remove "srpc_" prefix from rpc key
 
 # 1.0.4
 

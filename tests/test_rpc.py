@@ -19,7 +19,7 @@ async def test_main(sbus: ServerBus):
     class UpdEmailArgs(BaseModel):
         username: str
         email: str
-    async def srpc__update_email(msg: UpdEmailArgs) -> Res[int]:
+    async def srpc_update_email(msg: UpdEmailArgs) -> Res[int]:
         username = msg.username
         email = msg.email
         if username == "throw":
@@ -36,7 +36,7 @@ async def test_main(sbus: ServerBus):
     yon_rpc_req_codeid = find_codeid_in_welcome_rbmsg(
         "yon::srpc_send", welcome_rbmsg).eject()
 
-    ServerBus.reg_rpc(srpc__update_email).eject()
+    ServerBus.reg_rpc(srpc_update_email).eject()
 
     rpc_key = "update_email"
     await con_1.client__send({
@@ -72,16 +72,16 @@ async def test_main(sbus: ServerBus):
 
 async def test_srpc_decorator():
     @srpc
-    async def srpc__test(msg: EmptyMock) -> Res[Any]:
+    async def srpc_test(msg: EmptyMock) -> Res[Any]:
         return Ok(None)
     bus = ServerBus.ie()
     await bus.init()
     assert "test" in bus._rpckey_to_fn  # noqa: SLF001
 
 async def test_reg_custom_rpc_key():
-    async def srpc__test(msg: EmptyMock) -> Res[Any]:
+    async def srpc_test(msg: EmptyMock) -> Res[Any]:
         return Ok(None)
     bus = ServerBus.ie()
     await bus.init()
-    bus.reg_rpc(srpc__test, "whocares").eject()
+    bus.reg_rpc(srpc_test, "whocares").eject()
     assert "whocares" in bus._rpckey_to_fn  # noqa: SLF001

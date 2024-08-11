@@ -24,10 +24,10 @@ from yon import (
 
 async def test_subfn(sbus: ServerBus):
     con = MockCon(ConArgs(core=None))
-    async def sub__f(msg: Mock_1):
+    async def sub_f(msg: Mock_1):
         assert sbus.get_ctx()["consid"] == con.sid
 
-    await sbus.sub(sub__f)
+    await sbus.sub(sub_f)
     con_task = asyncio.create_task(sbus.con(con))
     # recv welcome
     await asyncio.wait_for(con.client__recv(), 1)
@@ -45,14 +45,14 @@ async def test_subfn(sbus: ServerBus):
 
 async def test_rpc(sbus: ServerBus):
     con = MockCon(ConArgs(core=None))
-    async def srpc__update_email(msg: EmptyRpcArgs) -> Res[int]:
+    async def srpc_update_email(msg: EmptyRpcArgs) -> Res[int]:
         assert sbus.get_ctx()["consid"] == con.sid
         return Ok(0)
 
     con_task = asyncio.create_task(sbus.con(con))
     # recv welcome
     await asyncio.wait_for(con.client__recv(), 1)
-    ServerBus.reg_rpc(srpc__update_email).eject()
+    ServerBus.reg_rpc(srpc_update_email).eject()
     rpc_key = "update_email"
     await con.client__send({
         "sid": uuid4(),
@@ -72,10 +72,10 @@ async def test_sub_custom_ctx_manager():
     sbus = ServerBus.ie()
     await sbus.init(ServerBusCfg(sub_ctxfn=get_mock_ctx_manager_for_msg))
 
-    async def sub__f(msg: Mock_1):
+    async def sub_f(msg: Mock_1):
         assert yon_mock_ctx.get()["name"] == "hello"
 
-    await sbus.sub(sub__f)
+    await sbus.sub(sub_f)
     await sbus.pubr(Mock_1(num=1))
 
 async def test_rpc_custom_ctx_manager():
@@ -89,14 +89,14 @@ async def test_rpc_custom_ctx_manager():
         sub_ctxfn=get_mock_ctx_manager_for_msg))
 
     con = MockCon(ConArgs(core=None))
-    async def srpc__update_email(msg: EmptyRpcArgs) -> Res[int]:
+    async def srpc_update_email(msg: EmptyRpcArgs) -> Res[int]:
         assert yon_mock_ctx.get()["name"] == "hello"
         return Ok(0)
 
     con_task = asyncio.create_task(sbus.con(con))
     # recv welcome
     await asyncio.wait_for(con.client__recv(), 1)
-    ServerBus.reg_rpc(srpc__update_email).eject()
+    ServerBus.reg_rpc(srpc_update_email).eject()
     rpc_key = "update_email"
     await con.client__send({
         "sid": uuid4(),

@@ -31,13 +31,13 @@ from yon import (
 async def test_pubsub(sbus: ServerBus):
     flag = False
 
-    async def sub__mock_1(msg: Mock_1):
+    async def sub_mock_1(msg: Mock_1):
         assert isinstance(msg, Mock_1)
         assert msg.num == 1
         nonlocal flag
         flag = True
 
-    (await sbus.sub(sub__mock_1)).eject()
+    (await sbus.sub(sub_mock_1)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
 
     assert flag
@@ -50,25 +50,25 @@ async def test_data_static_indexes(sbus: ServerBus):
 async def test_pubsub_err(sbus: ServerBus):
     flag = False
 
-    async def sub__test(msg: ValErr):
+    async def sub_test(msg: ValErr):
         assert type(msg) is ValErr
         assert get_err_msg(msg) == "hello"
         nonlocal flag
         flag = True
 
-    (await sbus.sub(sub__test)).eject()
+    (await sbus.sub(sub_test)).eject()
     (await sbus.pub(ValErr("hello"))).eject()
     assert flag
 
 async def test_pubr(sbus: ServerBus):
-    async def sub__test(msg: ValErr):
+    async def sub_test(msg: ValErr):
         assert type(msg) is ValErr
         assert get_err_msg(msg) == "hello"
         return Ok(Mock_1(num=1))
 
-    (await sbus.sub(sub__test)).eject()
+    (await sbus.sub(sub_test)).eject()
     response = (await sbus.pubr(
-        ValErr("hello"), PubOpts(pubr__timeout=1))).eject()
+        ValErr("hello"), PubOpts(pubr_timeout=1))).eject()
     assert type(response) is Mock_1
     assert response.num == 1
 
@@ -76,10 +76,10 @@ async def test_lsid_net(sbus: ServerBus):
     """
     Tests correctness of published back to net responses.
     """
-    async def sub__test(msg: Mock_1):
+    async def sub_test(msg: Mock_1):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
-    await sbus.sub(sub__test)
+    await sbus.sub(sub_test)
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
 
@@ -111,10 +111,10 @@ async def test_recv_empty_data(sbus: ServerBus):
     """
     Should validate empty data rbmsg, or data set to None to empty base models
     """
-    async def sub__test(msg: EmptyMock):
+    async def sub_test(msg: EmptyMock):
         return
 
-    await sbus.sub(sub__test)
+    await sbus.sub(sub_test)
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
 
@@ -132,10 +132,10 @@ async def test_send_empty_data(sbus: ServerBus):
     """
     Should validate empty data rbmsg, or data set to None to empty base models
     """
-    async def sub__test(msg: Mock_1):
+    async def sub_test(msg: Mock_1):
         return Ok(EmptyMock())
 
-    await sbus.sub(sub__test)
+    await sbus.sub(sub_test)
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
 
@@ -160,7 +160,7 @@ async def test_global_subfn_conditions():
         return data.num == 0
 
     flag = False
-    async def sub__test(msg: Mock_1):
+    async def sub_test(msg: Mock_1):
         # only mocks with num=0 should be passed
         assert msg.num == 0
         nonlocal flag
@@ -173,7 +173,7 @@ async def test_global_subfn_conditions():
         global_subfn_conditions=[condition])
     await sbus.init(cfg)
 
-    (await sbus.sub(sub__test)).eject()
+    (await sbus.sub(sub_test)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
 
 async def test_auth_example():
@@ -206,16 +206,16 @@ async def test_auth_example():
             return InterruptPipeline(ValErr("forbidden"))
         return data
 
-    async def sub__login(msg: Login):
+    async def sub_login(msg: Login):
         if msg.username == "right":
             ServerBus.ie().set_ctx_con_tokens(["right"])
             return None
         return valerr(f"wrong username {msg.username}")
 
-    async def sub__logout(msg: Logout):
+    async def sub_logout(msg: Logout):
         ServerBus.ie().set_ctx_con_tokens([])
 
-    async def sub__mock_1(msg: Mock_1):
+    async def sub_mock_1(msg: Mock_1):
         return
 
     sbus = ServerBus.ie()
@@ -231,9 +231,9 @@ async def test_auth_example():
     await sbus.init(cfg)
 
     (await sbus.reg_types({Login, Logout})).eject()
-    (await sbus.sub(sub__login)).eject()
-    (await sbus.sub(sub__logout)).eject()
-    (await sbus.sub(sub__mock_1)).eject()
+    (await sbus.sub(sub_login)).eject()
+    (await sbus.sub(sub_logout)).eject()
+    (await sbus.sub(sub_mock_1)).eject()
 
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
@@ -309,7 +309,7 @@ async def test_sub_decorator():
             return "mock"
 
     @sub
-    def sub__t(msg: Mock) -> Any:
+    def sub_t(msg: Mock) -> Any:
         return
 
     sbus = ServerBus.ie()
