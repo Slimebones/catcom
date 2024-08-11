@@ -1,7 +1,10 @@
+# 1.0.12
+
+- disallow use of double underscores for sub and rpc functions
+
 # 1.0.11
 
 - adjust bmsg fields
-- disallow use of double underscores for sub and rpc functions
 
 # 1.0.10
 
