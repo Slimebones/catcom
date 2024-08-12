@@ -428,29 +428,46 @@ class Bus(Singleton):
     @classmethod
     def reg_rpc(
         cls,
-        rpckey: str,
-        fn: RpcFn
+        key: str,
+        fn: RpcFn,
+        msgtype: type[BaseModel] | None = None
     ) -> Res[None]:
-        if rpckey in cls._rpckey_to_fn:
-            return Err(ValErr(f"rpc key {rpckey} is already regd"))
+        """
+        Registers rpc functions for a key.
 
-        sig = signature(fn)
-        msg_param = sig.parameters.get("msg")
-        if not msg_param:
-            return Err(ValErr(
-                f"rpc fn {fn} with key {rpckey} must accept"
-                " \"msg: AnyBaseModel\" as it's sole argument"))
-        msgtype = msg_param.annotation
+        # Args
+
+        * key - key for a rpc function
+        * fn - rpc function
+        * msgtype (optional) - msg type the rpc function will accept. Defaults
+                               to provided function's signature for `msg`.
+        """
+        if key in cls._rpckey_to_fn:
+            return Err(ValErr(f"rpc key {key} is already regd"))
+
+        if msgtype is None:
+            sig = signature(fn)
+            msg_param = sig.parameters.get("msg")
+            if not msg_param:
+                return valerr(
+                    f"rpc fn {fn} with key {key} must accept"
+                    " \"msg: AnyBaseModel\" as it's sole argument"
+                )
+            msgtype = msg_param.annotation
+        if msgtype is None:
+            return valerr(f"rpc msg type cannot be None")
         if msgtype is BaseModel:
-            return Err(ValErr(
-                f"rpc fn {fn} with key {rpckey} cannot declare BaseModel"
-                " as it's direct args type"))
+            return valerr(
+                f"rpc fn {fn} with key {key} cannot declare BaseModel"
+                " as it's direct args type"
+            )
         if not issubclass(msgtype, BaseModel):
-            return Err(ValErr(
-                f"rpc fn {fn} with code {rpckey} must accept args in form"
-                f" of BaseModel, got {msgtype}"))
+            return valerr(
+                f"rpc fn {fn} with code {key} must accept args in form"
+                f" of BaseModel, got {msgtype}"
+            )
 
-        cls._rpckey_to_fn[rpckey] = (fn, msgtype)
+        cls._rpckey_to_fn[key] = (fn, msgtype)
         return Ok(None)
 
     async def postinit(self):

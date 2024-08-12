@@ -85,3 +85,28 @@ async def test_reg_custom_rpc_key():
     await bus.init()
     bus.reg_rpc("whocares", rpc_test).eject()
     assert "whocares" in bus._rpckey_to_fn  # noqa: SLF001
+
+async def test_provide_custom_msgtype():
+    class Something(BaseModel):
+        pass
+
+    async def rpc_test(msg: Something) -> Res[None]:
+        return Ok()
+
+    bus = Bus.ie()
+    await bus.init()
+    bus.reg_rpc("test", rpc_test, Something).eject()
+    assert bus._rpckey_to_fn["test"] == (rpc_test, Something)
+
+async def test_provide_custom_msgtype_wrong():
+    class Something(BaseModel):
+        pass
+
+    async def rpc_test(msg: Something) -> Res[None]:
+        return Ok()
+
+    bus = Bus.ie()
+    await bus.init()
+    r = bus.reg_rpc("test", rpc_test, int)  # type: ignore
+    assert isinstance(r, Err)
+    assert "test" not in bus._rpckey_to_fn
