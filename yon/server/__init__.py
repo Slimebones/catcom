@@ -283,7 +283,7 @@ class Bus(Singleton):
         route="rx"
     )
     DEFAULT_CODE_ORDER: ClassVar[list[str]] = [
-        "yon::welcome",
+        "yon::server::welcome",
         "yon::ok"
     ]
 
@@ -361,6 +361,8 @@ class Bus(Singleton):
 
         reg_types = [] if cfg.reg_types is None else cfg.reg_types
         (await self.reg_types([
+            # by yon protocol, welcome msg is always the first, to be
+            # recognizable without knowing code ids
             Welcome,
             ok,
             RpcSend,
@@ -401,7 +403,8 @@ class Bus(Singleton):
         return await Code.get_regd_type_by_code(code)
 
     async def reg_types(
-            self, types: Iterable[type | Coded[type]]) -> Res[None]:
+        self, types: Iterable[type | Coded[type]]
+    ) -> Res[None]:
         """
         Reg codes for types.
 

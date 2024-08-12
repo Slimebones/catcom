@@ -44,7 +44,7 @@ async def test_pubsub(sbus: Bus):
 
 async def test_data_static_indexes(sbus: Bus):
     codes = (await Code.get_regd_codes()).eject()
-    assert codes[0] == "yon::welcome"
+    assert codes[0] == "yon::server::welcome"
     assert codes[1] == "yon::ok"
 
 async def test_pubsub_err(sbus: Bus):
