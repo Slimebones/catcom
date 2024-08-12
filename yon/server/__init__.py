@@ -455,7 +455,7 @@ class Bus(Singleton):
                 )
             msgtype = msg_param.annotation
         if msgtype is None:
-            return valerr(f"rpc msg type cannot be None")
+            return valerr("rpc msg type cannot be None")
         if msgtype is BaseModel:
             return valerr(
                 f"rpc fn {fn} with key {key} cannot declare BaseModel"

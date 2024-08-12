@@ -76,7 +76,7 @@ async def test_srpc_decorator():
         return Ok(None)
     bus = Bus.ie()
     await bus.init()
-    assert "test" in bus._rpckey_to_fn  # noqa: SLF001
+    assert "test" in bus._rpckey_to_fn
 
 async def test_reg_custom_rpc_key():
     async def rpc_test(msg: EmptyMock) -> Res[Any]:
@@ -84,7 +84,7 @@ async def test_reg_custom_rpc_key():
     bus = Bus.ie()
     await bus.init()
     bus.reg_rpc("whocares", rpc_test).eject()
-    assert "whocares" in bus._rpckey_to_fn  # noqa: SLF001
+    assert "whocares" in bus._rpckey_to_fn
 
 async def test_provide_custom_msgtype():
     class Something(BaseModel):

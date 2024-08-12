@@ -314,4 +314,4 @@ async def test_sub_decorator():
 
     sbus = Bus.ie()
     await sbus.init(BusCfg(reg_types={Mock}))
-    assert Mock.code() in sbus._code_to_subfns  # noqa: SLF001
+    assert Mock.code() in sbus._code_to_subfns
