@@ -7,11 +7,11 @@ import pytest_asyncio
 from pydantic import BaseModel
 from ryz.res import Ok, Res, valerr
 
-from yon import (
+from yon.server import (
     Con,
     ConArgs,
-    ServerBus,
-    ServerBusCfg,
+    Bus,
+    BusCfg,
     Transport,
 )
 
@@ -38,13 +38,13 @@ class EmptyMock(BaseModel):
 @pytest_asyncio.fixture(autouse=True)
 async def auto():
     yield
-    ServerBus.subfn_init_queue.clear()
-    await ServerBus.destroy()
+    Bus.subfn_init_queue.clear()
+    await Bus.destroy()
 
 @pytest_asyncio.fixture
-async def sbus() -> ServerBus:
-    bus = ServerBus.ie()
-    cfg = ServerBusCfg(
+async def sbus() -> Bus:
+    bus = Bus.ie()
+    cfg = BusCfg(
         transports=[
             Transport(
                 is_server=True,

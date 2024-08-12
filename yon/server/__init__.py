@@ -1,5 +1,5 @@
 """
-Yon implementation for Python.
+Yon server implementation for Python.
 """
 
 # DEV TERMINOLOGY:
@@ -32,15 +32,15 @@ from ryz.res import Err, Ok, Res, Result, UnwrapErr, aresultify, valerr
 from ryz.singleton import Singleton
 from ryz.uuid import uuid4
 
-from yon._msg import (
+from yon.server._msg import (
     Bmsg,
     Msg,
     TMsg_contra,
     Welcome,
     ok,
 )
-from yon._rpc import EmptyRpcArgs, RpcFn, SrpcRecv, SrpcSend
-from yon._transport import (
+from yon.server._rpc import EmptyRpcArgs, RpcFn, RpcRecv, RpcSend
+from yon.server._transport import (
     ActiveTransport,
     Con,
     ConArgs,
@@ -48,11 +48,11 @@ from yon._transport import (
     OnSendFn,
     Transport,
 )
-from yon._udp import Udp
-from yon._ws import Ws
+from yon.server._udp import Udp
+from yon.server._ws import Ws
 
 __all__ = [
-    "ServerBus",
+    "Bus",
     "SubFn",
     "ok",
     "SubOpts",
@@ -63,9 +63,9 @@ __all__ = [
     "Msg",
 
     "RpcFn",
-    "srpc",
-    "SrpcSend",
-    "SrpcRecv",
+    "rpc",
+    "RpcSend",
+    "RpcRecv",
     "EmptyRpcArgs",
     "StaticCodeid",
 
@@ -96,18 +96,22 @@ SubFnRetval = Msg | Iterable[Msg] | None
 class SubFn(Protocol, Generic[TMsg_contra]):
     async def __call__(self, msg: TMsg_contra) -> SubFnRetval: ...
 
-def sub(target: SubFn):
-    ServerBus.subfn_init_queue.add(target)
-    def inner(*args, **kwargs) -> Any:
-        return target(*args, **kwargs)
-    return inner
+def sub(msgtype: type[TMsg_contra]):
+    def wrapper(target: SubFn[TMsg_contra]):
+        Bus.subfn_init_queue.add((msgtype, target))
+        def inner(*args, **kwargs) -> Any:
+            return target(*args, **kwargs)
+        return inner
+    return wrapper
 
 # placed here and not at _rpc.py to avoid circulars
-def srpc(target: RpcFn):
-    ServerBus.reg_rpc(target).eject()
-    def inner(*args, **kwargs) -> Any:
-        return target(*args, **kwargs)
-    return inner
+def rpc(key: str):
+    def wrapper(target: RpcFn):
+        Bus.reg_rpc(key, target).eject()
+        def inner(*args, **kwargs) -> Any:
+            return target(*args, **kwargs)
+        return inner
+    return wrapper
 
 class PubList(list[Msg]):
     """
@@ -202,8 +206,6 @@ class SubOpts(BaseModel):
     inp_filters: Iterable[MsgFilter] | None = None
     out_filters: Iterable[SubFnRetvalFilter] | None = None
 
-    warn_unconventional_subfn_names: bool = True
-
 _yon_ctx = ContextVar("yon", default={})
 
 @runtime_checkable
@@ -211,7 +213,7 @@ class CtxManager(Protocol):
     async def __aenter__(self): ...
     async def __aexit__(self, *args): ...
 
-class ServerBusCfg(BaseModel):
+class BusCfg(BaseModel):
     """
     Global subfn functions are applied **before** local ones passed to SubOpts.
     """
@@ -238,7 +240,7 @@ class ServerBusCfg(BaseModel):
     """
 
     sub_ctxfn: Callable[[Bmsg], Awaitable[Res[CtxManager]]] | None = None
-    rpc_ctxfn: Callable[[SrpcSend], Awaitable[Res[CtxManager]]] | None = None
+    rpc_ctxfn: Callable[[RpcSend], Awaitable[Res[CtxManager]]] | None = None
 
     trace_errs_on_pub: bool = True
     log_net_send: bool = True
@@ -253,11 +255,11 @@ class ServerBusCfg(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-class ServerBus(Singleton):
+class Bus(Singleton):
     """
     Yon server bus implementation.
     """
-    subfn_init_queue: ClassVar[set[SubFn]] = set()
+    subfn_init_queue: ClassVar[set[tuple[type[Msg], SubFn]]] = set()
     """
     Queue of subscription functions to be subscribed on bus's initialization.
 
@@ -325,7 +327,7 @@ class ServerBus(Singleton):
     def get_ctx(self) -> dict:
         return _yon_ctx.get().copy()
 
-    async def init(self, cfg: ServerBusCfg = ServerBusCfg()):
+    async def init(self, cfg: BusCfg = BusCfg()):
         if self._is_initd:
             return
 
@@ -357,8 +359,8 @@ class ServerBus(Singleton):
         (await self.reg_types([
             Welcome,
             ok,
-            SrpcSend,
-            SrpcRecv,
+            RpcSend,
+            RpcRecv,
             ValErr,
             NotFoundErr,
             Coded(
@@ -383,8 +385,8 @@ class ServerBus(Singleton):
         ])).eject()
 
         if self._cfg.consider_sub_decorators:
-            for subfn in self.subfn_init_queue:
-                (await self.sub(subfn)).eject()
+            for msgtype, subfn in self.subfn_init_queue:
+                (await self.sub(msgtype, subfn)).eject()
 
     @property
     def is_initd(self) -> bool:
@@ -418,41 +420,30 @@ class ServerBus(Singleton):
 
     @classmethod
     def reg_rpc(
-            cls,
-            fn: RpcFn,
-            custom_rpc_key: str | None = None) -> Res[None]:
-        """
-        Reg server rpc (srpc).
-        """
-        fn_name = fn.__name__  # type: ignore
-        if not fn_name.startswith("srpc_"):
-            return Err(ValErr(f"rpc fn {fn} name must start with \"srpc_\""))
-
-        if custom_rpc_key:
-            rpc_key = custom_rpc_key
-        else:
-            rpc_key = fn_name.replace("srpc_", "")
-
-        if rpc_key in cls._rpckey_to_fn:
-            return Err(ValErr(f"rpc key {rpc_key} is already regd"))
+        cls,
+        rpckey: str,
+        fn: RpcFn
+    ) -> Res[None]:
+        if rpckey in cls._rpckey_to_fn:
+            return Err(ValErr(f"rpc key {rpckey} is already regd"))
 
         sig = signature(fn)
-        sig_param = sig.parameters.get("msg")
-        if not sig_param:
+        msg_param = sig.parameters.get("msg")
+        if not msg_param:
             return Err(ValErr(
-                f"rpc fn {fn} with key {rpc_key} must accept"
+                f"rpc fn {fn} with key {rpckey} must accept"
                 " \"msg: AnyBaseModel\" as it's sole argument"))
-        args_type = sig_param.annotation
-        if args_type is BaseModel:
+        msgtype = msg_param.annotation
+        if msgtype is BaseModel:
             return Err(ValErr(
-                f"rpc fn {fn} with key {rpc_key} cannot declare BaseModel"
+                f"rpc fn {fn} with key {rpckey} cannot declare BaseModel"
                 " as it's direct args type"))
-        if not issubclass(args_type, BaseModel):
+        if not issubclass(msgtype, BaseModel):
             return Err(ValErr(
-                f"rpc fn {fn} with code {rpc_key} must accept args in form"
-                f" of BaseModel, got {args_type}"))
+                f"rpc fn {fn} with code {rpckey} must accept args in form"
+                f" of BaseModel, got {msgtype}"))
 
-        cls._rpckey_to_fn[rpc_key] = (fn, args_type)
+        cls._rpckey_to_fn[rpckey] = (fn, msgtype)
         return Ok(None)
 
     async def postinit(self):
@@ -463,7 +454,7 @@ class ServerBus(Singleton):
         """
         Should be used only on server close or test interchanging.
         """
-        bus = ServerBus.ie()
+        bus = Bus.ie()
 
         if not bus._is_initd: # noqa: SLF001
             return
@@ -475,7 +466,7 @@ class ServerBus(Singleton):
         cls._rpckey_to_fn.clear()
         Code.destroy()
 
-        ServerBus.try_discard()
+        Bus.try_discard()
 
     async def con(self, con: Con):
         if not self._is_post_initd:
@@ -511,19 +502,9 @@ class ServerBus(Singleton):
             if con.sid in self._sid_to_con:
                 del self._sid_to_con[con.sid]
 
-    def _get_bodytype_from_subfn(
-            self, subfn: SubFn[TMsg_contra]) -> Res[type[TMsg_contra]]:
-        sig = signature(subfn)
-        params = list(sig.parameters.values())
-        if len(params) != 1:
-            return valerr(
-                f"subfn {subfn} must accept one argument, got {len(params)}")
-        param = params[0]
-        assert isclass(param.annotation)
-        return Ok(param.annotation)
-
     async def sub(
         self,
+        msgtype: type[Msg],
         subfn: SubFn[TMsg_contra],
         opts: SubOpts = SubOpts(),
     ) -> Res[Callable[[], Awaitable[Res[None]]]]:
@@ -541,25 +522,16 @@ class ServerBus(Singleton):
         Returns:
             Unsubscribe function.
         """
-        bodytype_res = self._get_bodytype_from_subfn(subfn)
-        if isinstance(bodytype_res, Err):
-            return bodytype_res
-        bodytype = bodytype_res.okval
+        if not isclass(msgtype):
+            return valerr(f"bodytype {msgtype} should be a class")
 
-        if (
-                not subfn.__name__.startswith("sub_")  # type: ignore
-                and opts.warn_unconventional_subfn_names):
-            log.warn(f"prefix subscription function {subfn} with \"sub_\"")
-
-        r = self._check_norpc_mbody(bodytype, "subscription")
+        r = self._check_norpc_mbody(msgtype, "subscription")
         if isinstance(r, Err):
             return r
         subsid = uuid4()
         subfn = self._apply_opts_to_subfn(subfn, opts)
 
-        if not isclass(bodytype):
-            return valerr(f"bodytype {bodytype} should be a class")
-        code_res = Code.get_from_type(bodytype)
+        code_res = Code.get_from_type(msgtype)
         if isinstance(code_res, Err):
             return code_res
         code = code_res.okval
@@ -904,10 +876,10 @@ class ServerBus(Singleton):
         if (
             (
                 iscls
-                and (issubclass(body, SrpcSend) or issubclass(body, SrpcRecv)))
+                and (issubclass(body, RpcSend) or issubclass(body, RpcRecv)))
             or (
                 not iscls
-                and (isinstance(body, (SrpcSend, SrpcRecv))))):
+                and (isinstance(body, (RpcSend, RpcRecv))))):
             return Err(ValErr(
                 f"mbody {body} in context of \"{disp_ctx}\" cannot be"
                 " associated with rpc"))
@@ -1006,10 +978,10 @@ class ServerBus(Singleton):
             await con.send(rbmsg)
 
     async def _accept_net_bmsg(self, bmsg: Bmsg):
-        if isinstance(bmsg.msg, SrpcRecv):
+        if isinstance(bmsg.msg, RpcRecv):
             log.err(f"server bus won't accept RpcRecv messages, got {bmsg}")
             return
-        elif isinstance(bmsg.msg, SrpcSend):
+        elif isinstance(bmsg.msg, RpcSend):
             # process rpc in a separate task to not block inp queue
             # processing
             task = asyncio.create_task(self._call_rpc(bmsg))
@@ -1072,7 +1044,7 @@ class ServerBus(Singleton):
         evt = Bmsg(
             lsid=bmsg.sid,
             skip__target_consids=[bmsg.skip__consid],
-            skip__code=SrpcRecv.code(),
+            skip__code=RpcRecv.code(),
             # pass val directly to optimize
             msg=val
         )

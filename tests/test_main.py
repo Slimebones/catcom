@@ -14,21 +14,21 @@ from tests.conftest import (
     Mock_2,
     MockCon,
 )
-from yon import (
+from yon.server import (
     ConArgs,
     InterruptPipeline,
     Msg,
     PubList,
     PubOpts,
-    ServerBus,
-    ServerBusCfg,
+    Bus,
+    BusCfg,
     StaticCodeid,
     Transport,
     sub,
 )
 
 
-async def test_pubsub(sbus: ServerBus):
+async def test_pubsub(sbus: Bus):
     flag = False
 
     async def sub_mock_1(msg: Mock_1):
@@ -37,17 +37,17 @@ async def test_pubsub(sbus: ServerBus):
         nonlocal flag
         flag = True
 
-    (await sbus.sub(sub_mock_1)).eject()
+    (await sbus.sub(Mock_1, sub_mock_1)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
 
     assert flag
 
-async def test_data_static_indexes(sbus: ServerBus):
+async def test_data_static_indexes(sbus: Bus):
     codes = (await Code.get_regd_codes()).eject()
     assert codes[0] == "yon::welcome"
     assert codes[1] == "yon::ok"
 
-async def test_pubsub_err(sbus: ServerBus):
+async def test_pubsub_err(sbus: Bus):
     flag = False
 
     async def sub_test(msg: ValErr):
@@ -56,30 +56,30 @@ async def test_pubsub_err(sbus: ServerBus):
         nonlocal flag
         flag = True
 
-    (await sbus.sub(sub_test)).eject()
+    (await sbus.sub(ValErr, sub_test)).eject()
     (await sbus.pub(ValErr("hello"))).eject()
     assert flag
 
-async def test_pubr(sbus: ServerBus):
+async def test_pubr(sbus: Bus):
     async def sub_test(msg: ValErr):
         assert type(msg) is ValErr
         assert get_err_msg(msg) == "hello"
         return Ok(Mock_1(num=1))
 
-    (await sbus.sub(sub_test)).eject()
+    (await sbus.sub(ValErr, sub_test)).eject()
     response = (await sbus.pubr(
         ValErr("hello"), PubOpts(pubr_timeout=1))).eject()
     assert type(response) is Mock_1
     assert response.num == 1
 
-async def test_lsid_net(sbus: ServerBus):
+async def test_lsid_net(sbus: Bus):
     """
     Tests correctness of published back to net responses.
     """
     async def sub_test(msg: Mock_1):
         return Ok(PubList([Mock_2(num=2), Mock_2(num=3)]))
 
-    await sbus.sub(sub_test)
+    await sbus.sub(Mock_1, sub_test)
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
 
@@ -107,14 +107,14 @@ async def test_lsid_net(sbus: ServerBus):
 
     con_task.cancel()
 
-async def test_recv_empty_data(sbus: ServerBus):
+async def test_recv_empty_data(sbus: Bus):
     """
     Should validate empty data rbmsg, or data set to None to empty base models
     """
     async def sub_test(msg: EmptyMock):
         return
 
-    await sbus.sub(sub_test)
+    await sbus.sub(EmptyMock, sub_test)
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
 
@@ -128,14 +128,14 @@ async def test_recv_empty_data(sbus: ServerBus):
 
     con_task.cancel()
 
-async def test_send_empty_data(sbus: ServerBus):
+async def test_send_empty_data(sbus: Bus):
     """
     Should validate empty data rbmsg, or data set to None to empty base models
     """
     async def sub_test(msg: Mock_1):
         return Ok(EmptyMock())
 
-    await sbus.sub(sub_test)
+    await sbus.sub(Mock_1, sub_test)
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
 
@@ -167,13 +167,13 @@ async def test_global_subfn_conditions():
         assert not flag
         flag = True
 
-    sbus = ServerBus.ie()
-    cfg = ServerBusCfg(
+    sbus = Bus.ie()
+    cfg = BusCfg(
         reg_types={Mock_1},
         global_subfn_conditions=[condition])
     await sbus.init(cfg)
 
-    (await sbus.sub(sub_test)).eject()
+    (await sbus.sub(Mock_1, sub_test)).eject()
     (await sbus.pub(Mock_1(num=1))).eject()
 
 async def test_auth_example():
@@ -193,7 +193,7 @@ async def test_auth_example():
             return "logout"
 
     async def ifilter__auth(data: Msg) -> Msg:
-        sbus = ServerBus.ie()
+        sbus = Bus.ie()
         consid_res = sbus.get_ctx_consid()
         # skip inner messages
         if isinstance(consid_res, Err) or not consid_res.okval:
@@ -208,18 +208,18 @@ async def test_auth_example():
 
     async def sub_login(msg: Login):
         if msg.username == "right":
-            ServerBus.ie().set_ctx_con_tokens(["right"])
+            Bus.ie().set_ctx_con_tokens(["right"])
             return None
         return valerr(f"wrong username {msg.username}")
 
     async def sub_logout(msg: Logout):
-        ServerBus.ie().set_ctx_con_tokens([])
+        Bus.ie().set_ctx_con_tokens([])
 
     async def sub_mock_1(msg: Mock_1):
         return
 
-    sbus = ServerBus.ie()
-    cfg = ServerBusCfg(
+    sbus = Bus.ie()
+    cfg = BusCfg(
         transports=[
             Transport(
                 is_server=True,
@@ -231,9 +231,9 @@ async def test_auth_example():
     await sbus.init(cfg)
 
     (await sbus.reg_types({Login, Logout})).eject()
-    (await sbus.sub(sub_login)).eject()
-    (await sbus.sub(sub_logout)).eject()
-    (await sbus.sub(sub_mock_1)).eject()
+    (await sbus.sub(Login, sub_login)).eject()
+    (await sbus.sub(Logout, sub_logout)).eject()
+    (await sbus.sub(Mock_1, sub_mock_1)).eject()
 
     con = MockCon(ConArgs(core=None))
     con_task = asyncio.create_task(sbus.con(con))
@@ -308,10 +308,10 @@ async def test_sub_decorator():
         def code():
             return "mock"
 
-    @sub
+    @sub(Mock)
     def sub_t(msg: Mock) -> Any:
         return
 
-    sbus = ServerBus.ie()
-    await sbus.init(ServerBusCfg(reg_types={Mock}))
+    sbus = Bus.ie()
+    await sbus.init(BusCfg(reg_types={Mock}))
     assert Mock.code() in sbus._code_to_subfns  # noqa: SLF001

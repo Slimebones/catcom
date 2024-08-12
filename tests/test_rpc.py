@@ -12,14 +12,14 @@ from tests.conftest import (
     MockCon,
     find_codeid_in_welcome_rbmsg,
 )
-from yon import ConArgs, ServerBus, srpc
+from yon.server import ConArgs, Bus, rpc
 
 
-async def test_main(sbus: ServerBus):
+async def test_main(sbus: Bus):
     class UpdEmailArgs(BaseModel):
         username: str
         email: str
-    async def srpc_update_email(msg: UpdEmailArgs) -> Res[int]:
+    async def rpc_update_email(msg: UpdEmailArgs) -> Res[int]:
         username = msg.username
         email = msg.email
         if username == "throw":
@@ -36,14 +36,14 @@ async def test_main(sbus: ServerBus):
     yon_rpc_req_codeid = find_codeid_in_welcome_rbmsg(
         "yon::srpc_send", welcome_rbmsg).eject()
 
-    ServerBus.reg_rpc(srpc_update_email).eject()
+    rpckey = "update_email"
+    Bus.reg_rpc(rpckey, rpc_update_email).eject()
 
-    rpc_key = "update_email"
     await con_1.client__send({
         "sid": uuid4(),
         "codeid": yon_rpc_req_codeid,
         "msg": {
-            "key": rpc_key,
+            "key": rpckey,
             "data": {"username": "test_username", "email": "test_email"}
         }
     })
@@ -51,13 +51,13 @@ async def test_main(sbus: ServerBus):
     rpc_msg = rpc_rbmsg["msg"]
     assert rpc_msg == 0
 
-    rpc_key = "update_email"
+    rpckey = "update_email"
     send_msid = uuid4()
     await con_1.client__send({
         "sid": send_msid,
         "codeid": yon_rpc_req_codeid,
         "msg": {
-            "key": rpc_key,
+            "key": rpckey,
             "data": {"username": "throw", "email": "test_email"}
         }
     })
@@ -71,17 +71,17 @@ async def test_main(sbus: ServerBus):
     con_task_1.cancel()
 
 async def test_srpc_decorator():
-    @srpc
-    async def srpc_test(msg: EmptyMock) -> Res[Any]:
+    @rpc("test")
+    async def rpc_test(msg: EmptyMock) -> Res[Any]:
         return Ok(None)
-    bus = ServerBus.ie()
+    bus = Bus.ie()
     await bus.init()
     assert "test" in bus._rpckey_to_fn  # noqa: SLF001
 
 async def test_reg_custom_rpc_key():
-    async def srpc_test(msg: EmptyMock) -> Res[Any]:
+    async def rpc_test(msg: EmptyMock) -> Res[Any]:
         return Ok(None)
-    bus = ServerBus.ie()
+    bus = Bus.ie()
     await bus.init()
-    bus.reg_rpc(srpc_test, "whocares").eject()
+    bus.reg_rpc("whocares", rpc_test).eject()
     assert "whocares" in bus._rpckey_to_fn  # noqa: SLF001

@@ -1,3 +1,7 @@
+# 1.1.0
+
+- separate server and client implementations, adjust names
+
 # 1.0.12
 
 - disallow use of double underscores for sub and rpc functions

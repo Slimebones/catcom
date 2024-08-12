@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel
 from ryz.res import Res
 
-from yon._msg import Msg
+from yon.server._msg import Msg
 
 
 class EmptyRpcArgs(BaseModel):
@@ -20,7 +20,7 @@ class EmptyRpcArgs(BaseModel):
     When you need to use empty args for your rpc function.
     """
 
-class SrpcSend(BaseModel):
+class RpcSend(BaseModel):
     key: str
     data: dict
     """
@@ -29,9 +29,9 @@ class SrpcSend(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "yon::srpc_send"
+        return "yon::server::rpc_send"
 
-class SrpcRecv(BaseModel):
+class RpcRecv(BaseModel):
     """
     Only ``val`` field directly passed to serialization, so the msg's body
     contain this directly.
@@ -44,7 +44,7 @@ class SrpcRecv(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "yon::srpc_recv"
+        return "yon::server::rpc_recv"
 
 class RpcFn(Protocol):
     """

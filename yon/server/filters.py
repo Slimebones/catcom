@@ -1,4 +1,4 @@
-from yon import ServerBus
+from yon.server import Bus
 
 __all__ = [
     "disable_subfn_lsid"
@@ -6,4 +6,4 @@ __all__ = [
 
 
 def disable_subfn_lsid(_):
-    ServerBus.ie().set_ctx_subfn_lsid(None)
+    Bus.ie().set_ctx_subfn_lsid(None)
