@@ -1,6 +1,7 @@
 # 1.1.0
 
 - separate server and client implementations, adjust names
+- improve sub and rpc functions register process, simplify inspection mechanisms
 
 # 1.0.12
 

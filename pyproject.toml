@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "yon"
-version = "1.0.12"
+version = "1.1.0"
 description = "Yon protocol implementation for Python."
 authors = ["ryzhovalex <thed4rkof@gmail.com>"]
 readme = "README.md"
