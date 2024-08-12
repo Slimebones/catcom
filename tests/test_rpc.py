@@ -12,7 +12,7 @@ from tests.conftest import (
     MockCon,
     find_codeid_in_welcome_rbmsg,
 )
-from yon.server import ConArgs, Bus, rpc
+from yon.server import Bus, ConArgs, rpc
 
 
 async def test_main(sbus: Bus):
@@ -34,7 +34,7 @@ async def test_main(sbus: Bus):
 
     welcome_rbmsg = await asyncio.wait_for(con_1.client__recv(), 1)
     yon_rpc_req_codeid = find_codeid_in_welcome_rbmsg(
-        "yon::srpc_send", welcome_rbmsg).eject()
+        "yon::server::rpc_send", welcome_rbmsg).eject()
 
     rpckey = "update_email"
     Bus.reg_rpc(rpckey, rpc_update_email).eject()

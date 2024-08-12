@@ -11,10 +11,10 @@ from tests.conftest import (
     yon_mock_ctx,
 )
 from yon.server import (
-    ConArgs,
-    EmptyRpcArgs,
     Bus,
     BusCfg,
+    ConArgs,
+    EmptyRpcArgs,
     RpcRecv,
     RpcSend,
     Transport,

@@ -15,13 +15,13 @@ from tests.conftest import (
     MockCon,
 )
 from yon.server import (
+    Bus,
+    BusCfg,
     ConArgs,
     InterruptPipeline,
     Msg,
     PubList,
     PubOpts,
-    Bus,
-    BusCfg,
     StaticCodeid,
     Transport,
     sub,

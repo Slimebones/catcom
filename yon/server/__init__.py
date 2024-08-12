@@ -58,7 +58,7 @@ __all__ = [
     "SubOpts",
     "PubOpts",
 
-    "ResourceServerErr",
+    "IncorrectYonApiUsageErr",
 
     "Msg",
 
@@ -131,18 +131,22 @@ class InterruptPipeline:
     def __init__(self, body: Msg) -> None:
         self.body = body
 
-class ResourceServerErr(Exception):
+class IncorrectYonApiUsageErr(Exception):
+    """
+    An error occured at attached resource server, which worked with
+    yon api incorrectly.
+    """
     @staticmethod
     def code() -> str:
-        return "yon::resource_server_err"
+        return "yon::incorrect_yon_api_usage_err"
 
-class Internal__InvokedActionUnhandledErr(Exception):
+class InternalInvokedActionUnhandledErr(Exception):
     def __init__(self, action: Callable, err: Exception):
         super().__init__(
             f"invoked {action} unhandled err: {err!r}"
         )
 
-class Internal__BusUnhandledErr(Exception):
+class InternalBusUnhandledErr(Exception):
     def __init__(self, err: Exception):
         super().__init__(
             f"bus unhandled err: {err}"
@@ -673,7 +677,7 @@ class Bus(Singleton):
                 if isinstance(res.errval, Exception):
                     body = res.errval
                 else:
-                    body = ResourceServerErr(
+                    body = IncorrectYonApiUsageErr(
                         f"got res with err value {res.errval},"
                         " which is not an instance of Exception")
             if track:

@@ -8,10 +8,10 @@ from pydantic import BaseModel
 from ryz.res import Ok, Res, valerr
 
 from yon.server import (
-    Con,
-    ConArgs,
     Bus,
     BusCfg,
+    Con,
+    ConArgs,
     Transport,
 )
 

@@ -206,12 +206,13 @@ class Bmsg(BaseModel):
 TBmsg = TypeVar("TBmsg", bound=Bmsg)
 # lowercase to not conflict with result.Ok
 class ok(BaseModel):
-    @staticmethod
-    def code() -> str:
-        return "yon::ok"
-
     def __str__(self) -> str:
         return "ok message"
+
+    @staticmethod
+    def code() -> str:
+        # also usable by clients, so the code is without server module prefix
+        return "yon::ok"
 
 class Welcome(BaseModel):
     """
@@ -221,4 +222,4 @@ class Welcome(BaseModel):
 
     @staticmethod
     def code() -> str:
-        return "yon::welcome"
+        return "yon::server::welcome"
