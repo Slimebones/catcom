@@ -1,4 +1,4 @@
-# 🐱 Yon for Python
+# 🐱 Reactive bus for Python
 
 ARCHIVED: Now is part of [Orwynn](http://github.com/slimebones/orwynn).
 
